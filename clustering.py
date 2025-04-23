@@ -18,6 +18,7 @@ from sklearn.cluster import AffinityPropagation
 from sklearn.metrics.pairwise import pairwise_distances
 
 from geopy.distance import geodesic
+from haversine import haversine, Unit
 
 import pandas as pd
 
@@ -25,6 +26,7 @@ import pymongo
 
 import os
 from dotenv import load_dotenv
+import argparse
 
 load_dotenv()
 
@@ -47,6 +49,12 @@ if not TEMP_IMAGE_FILE or not os.path.isfile(TEMP_IMAGE_FILE):
         "non‑existent file."
     )
 
+parser = argparse.ArgumentParser(description='Photo clustering with different distance calculation methods')
+parser.add_argument('--method', choices=['geodesic', 'haversine'], 
+                   default='haversine',
+                   help='Distance calculation method to use')
+args = parser.parse_args()
+
 df = pd.read_csv(TEMP_IMAGE_FILE)
 
 df[df.columns[1:3]]
@@ -54,14 +62,26 @@ df[df.columns[1:3]]
 coords = df[df.columns[1:3]].values
 print(coords)
 
-def geodesic_wrapper(point1, point2):
-    """Wrapper for geopy.distance.geodesic to work with pairwise_distances."""
-    # geopy expects (latitude, longitude) tuples
-    return geodesic(point1, point2).km # Access the distance in kilometers
+def calculate_distances(coords, method='haversine'):
+    """Calculate distances between points using the specified method"""
+    if method == 'geodesic':
+        print("Calculating pairwise Geodesic distances...")
+        def geodesic_wrapper(point1, point2):
+            return geodesic(point1, point2).km
+        distance_matrix = pairwise_distances(coords, metric=geodesic_wrapper)
+    elif method == 'haversine':
+        print("Calculating pairwise Haversine distances...")
+        def haversine_wrapper(point1, point2):
+            # haversine expects (lat, lon) tuples and returns distance in km
+            return haversine(point1, point2,unit=Unit.KILOMETERS)
+        distance_matrix = pairwise_distances(coords, metric=haversine_wrapper)
+    else:
+        raise ValueError(f"Unknown distance calculation method: {method}")
+    
+    return distance_matrix
 
-print("Calculating pairwise Geodesic distances...")
-# Note: Geodesic calculation can be slower than Haversine for large datasets.
-distance_matrix = pairwise_distances(coords, metric=geodesic_wrapper)
+print(f"Using {args.method} distance calculation method")
+distance_matrix = calculate_distances(coords, method=args.method)
 
 similarity_matrix = -distance_matrix
 
@@ -109,29 +129,28 @@ if cluster_centers_indices is not None and len(cluster_centers_indices) > 0:
     n_clusters_ = len(cluster_centers_indices)
     print(f"\nEstimated number of clusters: {n_clusters_}")
 
-    # Print details for each cluster
     for cluster_id in range(n_clusters_):
-        # Get the index (in the original DataFrame/coords_array) of the point that is the cluster center (exemplar)
         center_index = cluster_centers_indices[cluster_id]
-        # Get the details of the center point from the DataFrame
         center_point_details = df.iloc[center_index]
         
         # Update all photos in this cluster
         cluster_members_indices = np.where(labels == cluster_id)[0]
-        for member_index in cluster_members_indices:
-            member_details = df.iloc[member_index]
-            photos.update_one(
-                {"SourceFile": member_details['SourceFile']},
-                {
-                    "$set": {
-                        "cluster": {
-                            "id": cluster_id,
-                            "isCenter": False,
-                            "locationName": None  # Will be updated by reverse geocoding
-                        }
+
+        member_source_files = [df.iloc[idx]['SourceFile'] for idx in cluster_members_indices]
+        
+        # Update all non-center members in a single operation
+        if member_source_files:
+            update_result = photos.update_many(
+                {"SourceFile": {"$in": member_source_files}},
+                {"$set": {
+                    "cluster": {
+                        "id": cluster_id,
+                        "isCenter": False,
+                        "locationName": None
                     }
-                }
+                }}
             )
+
         # Update the center photo
         photos.update_one(
             {"SourceFile": center_point_details['SourceFile']},
@@ -140,11 +159,12 @@ if cluster_centers_indices is not None and len(cluster_centers_indices) > 0:
                     "cluster": {
                         "id": cluster_id,
                         "isCenter": True,
-                        "locationName": None  # Will be updated by reverse geocoding
+                        "locationName": None
                     }
                 }
             }
         )
+
 
         centers.append({
             'latitude': float(center_point_details['GPSLatitude']),

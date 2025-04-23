@@ -1,6 +1,3 @@
-# Install the Google Maps client library if you haven't already
-# Run this command in a Colab cell:
-
 import os
 from dotenv import load_dotenv
 import pymongo
@@ -28,10 +25,10 @@ try:
     db = myclient[MONGO_DATABASE]
     photos = db["photos"]
     
-    # Find all center photos that need reverse geocoding
     query = {"cluster.isCenter": True}
     center_count = photos.count_documents(query)
     center_photos = photos.find(query)
+
     print(f"Found {center_count} center photos to process")
 except pymongo.errors.ServerSelectionTimeoutError as e:
     print(f"Error connecting to MongoDB: {e}")
@@ -41,22 +38,25 @@ except Exception as e:
     exit(1)
 
 
-
-# --- Initialize Google Maps Client ---
 try:
     gmaps = googlemaps.Client(key=API_KEY)
 except Exception as e:
     print(f"Error initializing Google Maps client: {e}")
-    # Exit or handle the error appropriately if the client can't be initialized
     gmaps = None
 
-# --- Process Coordinates ---
-location_names = {} # Dictionary to store results {coordinate_tuple: location_name}
+location_names = {} 
 
-if gmaps: # Proceed only if the client was initialized successfully
+if gmaps:
     print(f"Processing center photos coordinates...")
     for photo in center_photos:
-        coordinate_tuple = (float(photo['GPSLatitude']), float(photo['GPSLongitude']))
+        try:
+            lat = float(photo['GPSLatitude'])
+            lon = float(photo['GPSLongitude'])
+        except (TypeError, ValueError, KeyError):
+            print(f"  -> Skipping document {photo.get('_id')} – invalid GPS data")
+            continue
+        coordinate_tuple = (lat, lon)
+
         print(f"\nLooking up coordinates: {coordinate_tuple}")
         try:
             reverse_geocode_result = gmaps.reverse_geocode(coordinate_tuple, result_type='political')
@@ -64,13 +64,7 @@ if gmaps: # Proceed only if the client was initialized successfully
             if reverse_geocode_result:
                 location_name = reverse_geocode_result[0]['formatted_address']
                 print(f"  -> Found Location: {location_name}")
-                # Update the center photo
-                photos.update_one(
-                    {"_id": photo['_id']},
-                    {"$set": {"cluster.locationName": location_name}}
-                )
                 
-                # Update all photos in the same cluster
                 photos.update_many(
                     {"cluster.id": photo['cluster']['id']},
                     {"$set": {"cluster.locationName": location_name}}
