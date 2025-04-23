@@ -1,0 +1,10 @@
+pymongo
+geopy
+matplotlib
+numpy
+scikit-learn
+geopy
+pandas
+googlemaps
+python-dotenv
+haversine

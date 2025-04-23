@@ -1,0 +1,7 @@
+**.local
+.env
+**/node_modules/
+**/logs
+*.log
+coordinates.csv
+**.csv
