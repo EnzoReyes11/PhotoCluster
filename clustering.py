@@ -31,7 +31,6 @@ load_dotenv()
 MONGO_HOST = os.getenv('MONGO_HOST', 'localhost')
 MONGO_PORT = int(os.getenv('MONGO_PORT', 27017))
 MONGO_DATABASE = os.getenv('MONGO_DATABASE', 'photoLocator')
-TEMP_IMAGE_FILE = os.getenv('TEMP_IMAGE_FILE') 
 
 myclient = pymongo.MongoClient(MONGO_HOST,MONGO_PORT)
 db = myclient[MONGO_DATABASE]
@@ -41,6 +40,13 @@ query = {"$and": [{"GPSPosition": {"$ne": None}}, {"GPSAltitude": {"$ne": None}}
 datapoints = list(photos.find(query))
 
 #df = pd.json_normalize(datapoints)
+TEMP_IMAGE_FILE = os.getenv("TEMP_IMAGE_FILE")
+if not TEMP_IMAGE_FILE or not os.path.isfile(TEMP_IMAGE_FILE):
+    raise FileNotFoundError(
+        "Environment variable TEMP_IMAGE_FILE is not set or points to a "
+        "non‑existent file."
+    )
+
 df = pd.read_csv(TEMP_IMAGE_FILE)
 
 df[df.columns[1:3]]
@@ -81,10 +87,12 @@ af = AffinityPropagation(affinity='precomputed',
                               random_state=42)   # For reproducible results
 af.fit(similarity_matrix)
 
-cluster_centers_indices = af.cluster_centers_indices_
-labels = af.labels_
-
-n_clusters_ = len(cluster_centers_indices)
+cluster_centers_indices = af.cluster_centers_indices_ 
+labels = af.labels_ 
+if cluster_centers_indices is not None: 
+    n_clusters_ = len(cluster_centers_indices) 
+else: 
+    n_clusters_ = 0
 
 print("Estimated number of clusters: %d" % n_clusters_)
 print("Homogeneity: %0.3f" % metrics.homogeneity_score(labels, labels))
