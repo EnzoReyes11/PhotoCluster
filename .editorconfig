@@ -1,0 +1,38 @@
+
+# EditorConfig is awesome: https://editorconfig.org
+
+# top-most EditorConfig file
+root = true
+
+# Unix-style newlines with a newline ending every file
+[*]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+curly_bracket_next_line = false
+spaces_around_operators = true
+indent_brace_style = "K&R"
+max_line_length = 120
+
+# 4 space indentation
+[*.py]
+indent_size = 4
+
+[*.{json,yaml,yml}]
+max_line_length = 160
+
+# The indent size used in the `package.json` file cannot be changed
+# https://github.com/npm/npm/pull/3180#issuecomment-16336516
+[{.travis.yml,npm-shrinkwrap.json,package.json}]
+indent_size = 4
+
+[*.{js,html,json,yaml,yml}]
+indent_size = 2
+
+# Tab indentation (no size specified)
+[Makefile]
+indent_style = tab
+
