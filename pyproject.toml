@@ -1,0 +1,7 @@
+[tool.ruff]
+exclude = [".venv", ".vvv"]
+
+indent-width = 4
+
+[tool.ruff.lint]
+select = ["ALL"]
