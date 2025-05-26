@@ -24,7 +24,7 @@ from sklearn.metrics.pairwise import pairwise_distances
 load_dotenv()
 
 MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
-MONGO_PORT = int(os.getenv("MONGO_PORT", 27017))
+MONGO_PORT = int(os.getenv("MONGO_PORT", "27017"))
 MONGO_DATABASE = os.getenv("MONGO_DATABASE", "photoLocator")
 
 
@@ -128,6 +128,7 @@ n_clusters_ = len(cluster_centers_indices) if cluster_centers_indices is not Non
 labels = af.labels_
 
 # Affinity Propagation metrics
+# TODO(enzoreyes11): #2 https://github.com/EnzoReyes11/PhotoCluster/issues/2
 print(f"Estimated number of clusters: {n_clusters_}")
 print(f"Homogeneity: {metrics.homogeneity_score(labels, labels):.3f}")
 print(f"Completeness: {metrics.completeness_score(labels, labels):.3f}")
