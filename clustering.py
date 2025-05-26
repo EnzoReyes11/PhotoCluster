@@ -1,7 +1,15 @@
-"""Photo Clusters - Affinity Propagation."""
+"""Runs the clustering algorithm.
+
+Reads the CSV file and runs the clustering algorithm. Currently Affinity Propagation.
+Updates each media element record in the MongoDB collection with the cluster
+information.
+
+Step 2.
+"""
 
 import argparse
 import os
+import sys
 
 import numpy as np
 import pandas as pd
@@ -19,9 +27,19 @@ MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
 MONGO_PORT = int(os.getenv("MONGO_PORT", 27017))
 MONGO_DATABASE = os.getenv("MONGO_DATABASE", "photoLocator")
 
-myclient = pymongo.MongoClient(MONGO_HOST, MONGO_PORT)
-db = myclient[MONGO_DATABASE]
-photos = db["photos"]
+
+try:
+    myclient = pymongo.MongoClient(MONGO_HOST, MONGO_PORT)
+    myclient.admin.command("ping")
+
+    db = myclient[MONGO_DATABASE]
+    photos = db["photos"]
+except pymongo.errors.ServerSelectionTimeoutError as e:
+    print(f"Error connecting to MongoDB: {e}")
+    sys.exit(1)
+except Exception as e:
+    print(f"Unexpected error when setting up MongoDB: {e}")
+    sys.exit(1)
 
 query = {"$and": [{"GPSPosition": {"$ne": None}}, {"GPSAltitude": {"$ne": None}}]}
 datapoints = list(photos.find(query))

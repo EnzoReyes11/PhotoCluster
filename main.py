@@ -1,3 +1,11 @@
+"""Generates a CSV only with the available media elements.
+
+Reads MongoDB and select only the media elements that have GPS data.
+Generates a CSV file with that.
+
+Step 1.
+"""
+
 import csv
 import os
 import sys
@@ -5,14 +13,12 @@ import sys
 import pymongo
 from dotenv import load_dotenv
 
-os.environ.clear()
 load_dotenv()
 
 MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
-MONGO_PORT = int(os.getenv("MONGO_PORT", 27017))
+MONGO_PORT = int(os.getenv("MONGO_PORT", "27017"))
 MONGO_DATABASE = os.getenv("MONGO_DATABASE")
 TEMP_IMAGE_FILE = os.getenv("TEMP_IMAGE_FILE")
-print(MONGO_PORT)
 
 # Validate required environment variables
 if not MONGO_DATABASE:
@@ -24,12 +30,10 @@ try:
     myclient = pymongo.MongoClient(
         MONGO_HOST,
         MONGO_PORT,
-        serverSelectionTimeoutMS=5000,
     )
     myclient.admin.command("ping")
     db = myclient[MONGO_DATABASE]
     photos = db["photos"]
-    query = {"$and": [{"GPSPosition": {"$ne": None}}, {"GPSAltitude": {"$ne": None}}]}
 except pymongo.errors.ServerSelectionTimeoutError as e:
     print(f"Error connecting to MongoDB: {e}")
     sys.exit(1)
@@ -42,11 +46,11 @@ photos.create_index("cluster.id")
 photos.create_index("cluster.isCenter")
 photos.create_index("cluster.locationName")
 
+query = {"$and": [{"GPSPosition": {"$ne": None}}, {"GPSAltitude": {"$ne": None}}]}
 docs = photos.find(query)
 docs_count = photos.count_documents(query)
 
 print(docs_count)
-
 
 try:
     with open(TEMP_IMAGE_FILE, "w", newline="") as f:

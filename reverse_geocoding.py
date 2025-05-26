@@ -1,6 +1,11 @@
+"""Retrieves the location for each cluster.
+
+Runs reverse Geocoding for each cluster, and updates the MongoDB collection with
+this information.
+"""
+
 import os
 import sys
-from datetime import datetime
 
 import googlemaps
 import pymongo
@@ -10,7 +15,7 @@ load_dotenv()
 
 API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "your_api_key")
 MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
-MONGO_PORT = int(os.getenv("MONGO_PORT", 27017))
+MONGO_PORT = int(os.getenv("MONGO_PORT", "27017"))
 MONGO_DATABASE = os.getenv("MONGO_DATABASE", "photoLocator")
 
 
@@ -22,7 +27,8 @@ if not MONGO_DATABASE:
 # Find all center photos that need reverse geocoding
 try:
     myclient = pymongo.MongoClient(
-        MONGO_HOST, MONGO_PORT, serverSelectionTimeoutMS=5000
+        MONGO_HOST,
+        MONGO_PORT,
     )
     myclient.admin.command("ping")
 
@@ -51,7 +57,7 @@ except Exception as e:
 location_names = {}
 
 if gmaps:
-    print(f"Processing center photos coordinates...")
+    print("Processing center photos coordinates...")
     for photo in center_photos:
         try:
             lat = float(photo["GPSLatitude"])
@@ -64,7 +70,8 @@ if gmaps:
         print(f"\nLooking up coordinates: {coordinate_tuple}")
         try:
             reverse_geocode_result = gmaps.reverse_geocode(
-                coordinate_tuple, result_type="political"
+                coordinate_tuple,
+                result_type="political",
             )
 
             if reverse_geocode_result:
