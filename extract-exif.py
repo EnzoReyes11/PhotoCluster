@@ -50,6 +50,8 @@ def read_all_media_files(directory: Path, unsupported_files_log: Path) -> list[s
 
     Args:
         directory: Root directory to start searching from
+        unsupported_files_log: Path to log file for unsupported extensions
+
 
     Returns:
         List of absolute file paths for supported media files
