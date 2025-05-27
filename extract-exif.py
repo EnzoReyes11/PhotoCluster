@@ -1,4 +1,10 @@
-"""Extracts EXIF data from a directory tree and stores it in MongoDB."""
+"""Extracts EXIF data from a directory tree and stores it in MongoDB.
+
+Uses ExifTool https://exiftool.org/, which needs to be installed in the system.
+The records are stored normalized, without the namespace ExitTool uses.
+
+Step 0.
+"""
 
 import os
 import sys
@@ -10,10 +16,13 @@ from exiftool import ExifToolHelper
 
 load_dotenv()
 
-# MongoDB configuration
 MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
 MONGO_PORT = int(os.getenv("MONGO_PORT", "27017"))
 MONGO_DATABASE = os.getenv("MONGO_DATABASE")
+MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "photos")
+
+NAMESPACE_SEPARATOR_PARTS = 2
+
 
 # Validate required environment variables
 required_env_vars = ["MONGO_DATABASE", "SOURCE_IMAGES_DIR_PATH"]
@@ -31,12 +40,11 @@ UNSUPPORTED_FILES_LOG = Path(
     os.getenv("UNSUPPORTED_FILES_LOG", "unsupported_files.log"),
 )
 
-# MongoDB connection
 try:
     client = pymongo.MongoClient(MONGO_HOST, MONGO_PORT)
     client.admin.command("ping")  # Test connection
     db = client[MONGO_DATABASE]
-    photos2 = db["photos2"]
+    collection = db[MONGO_COLLECTION]
 except pymongo.errors.ServerSelectionTimeoutError as e:
     print(f"Error connecting to MongoDB: {e}")
     sys.exit(1)
@@ -104,6 +112,29 @@ def read_all_media_files(directory: Path, unsupported_files_log: Path) -> list[s
     return file_paths
 
 
+def normalize_exiftool_data(metadata: dict[str, any]) -> dict[str, any]:
+    """Normalize ExifTool metadata by removing prefixes from all fields.
+
+    Args:
+        metadata: Raw ExifTool metadata dictionary
+
+    Returns:
+        Normalized metadata dictionary with all fields flattened and prefixes removed
+
+    """
+    normalized = {}
+
+    for key, value in metadata.items():
+        # Split the key by first colon
+        parts = key.split(":", 1)
+
+        new_key = parts[1] if len(parts) == NAMESPACE_SEPARATOR_PARTS else key
+
+        normalized[new_key] = value
+
+    return normalized
+
+
 def main() -> None:
     """Extract EXIF data from supported media and store metadata in MongoDB."""
     try:
@@ -123,12 +154,17 @@ def main() -> None:
 
             with ExifToolHelper() as et:
                 metadata_list = [
-                    metadata for metadata in et.get_metadata(batch) if metadata
+                    metadata
+                    for metadata in et.get_metadata(batch, ["-api", "geolocation"])
+                    if metadata
                 ]
 
                 if metadata_list:
-                    # Insert batch into MongoDB
-                    result = photos2.insert_many(metadata_list)
+                    normalized_metadata = [
+                        normalize_exiftool_data(md) for md in metadata_list
+                    ]
+
+                    result = collection.insert_many(normalized_metadata)
                     print(
                         f"Successfully inserted {len(result.inserted_ids)} photo "
                         f"metadata records",

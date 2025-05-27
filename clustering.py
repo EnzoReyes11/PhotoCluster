@@ -26,14 +26,14 @@ load_dotenv()
 MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
 MONGO_PORT = int(os.getenv("MONGO_PORT", "27017"))
 MONGO_DATABASE = os.getenv("MONGO_DATABASE", "photoLocator")
-
+MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "photos")
 
 try:
     myclient = pymongo.MongoClient(MONGO_HOST, MONGO_PORT)
     myclient.admin.command("ping")
 
     db = myclient[MONGO_DATABASE]
-    photos = db["photos"]
+    collection = db[MONGO_COLLECTION]
 except pymongo.errors.ServerSelectionTimeoutError as e:
     print(f"Error connecting to MongoDB: {e}")
     sys.exit(1)
@@ -42,7 +42,7 @@ except Exception as e:
     sys.exit(1)
 
 query = {"$and": [{"GPSPosition": {"$ne": None}}, {"GPSAltitude": {"$ne": None}}]}
-datapoints = list(photos.find(query))
+datapoints = list(collection.find(query))
 
 # df = pd.json_normalize(datapoints)
 TEMP_IMAGE_FILE = os.getenv("TEMP_IMAGE_FILE")
@@ -156,7 +156,7 @@ if cluster_centers_indices is not None and len(cluster_centers_indices) > 0:
 
         # Update all non-center members in a single operation
         if member_source_files:
-            update_result = photos.update_many(
+            update_result = collection.update_many(
                 {"SourceFile": {"$in": member_source_files}},
                 {
                     "$set": {
@@ -170,7 +170,7 @@ if cluster_centers_indices is not None and len(cluster_centers_indices) > 0:
             )
 
         # Update the center photo
-        photos.update_one(
+        collection.update_one(
             {"SourceFile": center_point_details["SourceFile"]},
             {
                 "$set": {
