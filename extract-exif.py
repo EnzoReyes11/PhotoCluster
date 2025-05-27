@@ -101,8 +101,10 @@ def main() -> None:
         batch_size = 1000
         for i in range(0, len(file_paths), batch_size):
             batch = file_paths[i : i + batch_size]
+
             print(
-                f"Processing batch {i // batch_size + 1} of {(len(file_paths) + batch_size - 1) // batch_size}",
+                f"Processing batch {i // batch_size + 1} of "
+                f"{(len(file_paths) + batch_size - 1) // batch_size}",
             )
 
             with ExifToolHelper() as et:
@@ -114,7 +116,8 @@ def main() -> None:
                     # Insert batch into MongoDB
                     result = photos2.insert_many(metadata_list)
                     print(
-                        f"Successfully inserted {len(result.inserted_ids)} photo metadata records",
+                        f"Successfully inserted {len(result.inserted_ids)} photo "
+                        f"metadata records",
                     )
                 else:
                     print("No metadata was extracted from the current batch")
