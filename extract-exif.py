@@ -14,8 +14,6 @@ load_dotenv()
 MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
 MONGO_PORT = int(os.getenv("MONGO_PORT", "27017"))
 MONGO_DATABASE = os.getenv("MONGO_DATABASE")
-SOURCE_IMAGES_DIR_PATH = os.getenv("SOURCE_IMAGES_DIR_PATH")
-UNSUPPORTED_FILES_LOG = os.getenv("UNSUPPORTED_FILES_LOG", "unsupported_files.log")
 
 # Validate required environment variables
 required_env_vars = ["MONGO_DATABASE", "SOURCE_IMAGES_DIR_PATH"]
@@ -23,6 +21,15 @@ missing_env_vars = [var for var in required_env_vars if not os.getenv(var)]
 if missing_env_vars:
     print(f"Missing required environment variables: {', '.join(missing_env_vars)}")
     sys.exit(1)
+
+SOURCE_IMAGES_DIR_PATH = Path(os.getenv("SOURCE_IMAGES_DIR_PATH"))
+if not Path.is_dir(SOURCE_IMAGES_DIR_PATH):
+    print(f"Source directory does not exist: {SOURCE_IMAGES_DIR_PATH}")
+    sys.exit(1)
+
+UNSUPPORTED_FILES_LOG = Path(
+    os.getenv("UNSUPPORTED_FILES_LOG", "unsupported_files.log"),
+)
 
 # MongoDB connection
 try:
@@ -38,8 +45,8 @@ except Exception as e:
     sys.exit(1)
 
 
-def read_all_files(directory: str) -> list[str]:
-    """Read all supported media files from a directory tree.
+def read_all_media_files(directory: Path, unsupported_files_log: Path) -> list[str]:
+    """Read all supported image and video files from a directory tree.
 
     Args:
         directory: Root directory to start searching from
@@ -80,21 +87,26 @@ def read_all_files(directory: str) -> list[str]:
                     unsupported_extensions.add(ext)
 
     # Start recursive file reading
-    read_all_files_rec(Path(directory))
+    read_all_files_rec(directory)
 
     # Log unsupported extensions
     if unsupported_extensions:
-        with Path.open(UNSUPPORTED_FILES_LOG, "a") as log_file:
-            log_file.write("\n".join(sorted(unsupported_extensions)) + "\n")
+        from datetime import datetime, timezone
+
+        timestamp = datetime.now(timezone.utc).isoformat()
+        with Path.open(unsupported_files_log, "a") as log_file:
+            log_file.write(
+                f"{timestamp}: {', '.join(sorted(unsupported_extensions))}\n",
+            )
 
     return file_paths
 
 
 def main() -> None:
-    """Main function to process images and store metadata in MongoDB."""
+    """Extract EXIF data from supported media and store metadata in MongoDB."""
     try:
         # Get all image files
-        file_paths = read_all_files(SOURCE_IMAGES_DIR_PATH)
+        file_paths = read_all_media_files(SOURCE_IMAGES_DIR_PATH, UNSUPPORTED_FILES_LOG)
         print(f"Found {len(file_paths)} image files to process")
 
         # Process files in batches to avoid memory issues
