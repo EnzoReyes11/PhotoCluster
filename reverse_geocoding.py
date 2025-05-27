@@ -17,6 +17,7 @@ API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "your_api_key")
 MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
 MONGO_PORT = int(os.getenv("MONGO_PORT", "27017"))
 MONGO_DATABASE = os.getenv("MONGO_DATABASE", "photoLocator")
+MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "photos")
 
 
 if not API_KEY or API_KEY == "your_api_key":
@@ -33,11 +34,11 @@ try:
     myclient.admin.command("ping")
 
     db = myclient[MONGO_DATABASE]
-    photos = db["photos"]
+    collection = db[MONGO_COLLECTION]
 
     query = {"cluster.isCenter": True}
-    center_count = photos.count_documents(query)
-    center_photos = photos.find(query)
+    center_count = collection.count_documents(query)
+    center_photos = collection.find(query)
 
     print(f"Found {center_count} center photos to process")
 except pymongo.errors.ServerSelectionTimeoutError as e:
@@ -78,7 +79,7 @@ if gmaps:
                 location_name = reverse_geocode_result[0]["formatted_address"]
                 print(f"  -> Found Location: {location_name}")
 
-                photos.update_many(
+                collection.update_many(
                     {"cluster.id": photo["cluster"]["id"]},
                     {"$set": {"cluster.locationName": location_name}},
                 )

@@ -18,6 +18,7 @@ load_dotenv()
 MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
 MONGO_PORT = int(os.getenv("MONGO_PORT", "27017"))
 MONGO_DATABASE = os.getenv("MONGO_DATABASE")
+MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "photos")
 TEMP_IMAGE_FILE = os.getenv("TEMP_IMAGE_FILE")
 
 # Validate required environment variables
@@ -33,7 +34,7 @@ try:
     )
     myclient.admin.command("ping")
     db = myclient[MONGO_DATABASE]
-    photos = db["photos"]
+    collection = db[MONGO_COLLECTION]
 except pymongo.errors.ServerSelectionTimeoutError as e:
     print(f"Error connecting to MongoDB: {e}")
     sys.exit(1)
@@ -42,24 +43,21 @@ except Exception as e:
     sys.exit(1)
 
 # Create indexes for efficient querying
-photos.create_index("cluster.id")
-photos.create_index("cluster.isCenter")
-photos.create_index("cluster.locationName")
+collection.create_index("cluster.id")
+collection.create_index("cluster.isCenter")
+collection.create_index("cluster.locationName")
 
 query = {"$and": [{"GPSPosition": {"$ne": None}}, {"GPSAltitude": {"$ne": None}}]}
-docs = photos.find(query)
-docs_count = photos.count_documents(query)
-
-print(docs_count)
+docs = collection.find(query)
+docs_count = collection.count_documents(query)
 
 try:
     with open(TEMP_IMAGE_FILE, "w", newline="") as f:
         csv_writer = csv.writer(f)
-        # Write header
         csv_writer.writerow(
             ["SourceFile", "GPSLatitude", "GPSLongitude", "GPSAltitude"],
         )
-        # Write data
+
         for key in docs:
             csv_writer.writerow(
                 [
