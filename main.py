@@ -9,6 +9,7 @@ Step 1.
 import csv
 import os
 import sys
+from pathlib import Path
 
 import pymongo
 from dotenv import load_dotenv
@@ -19,7 +20,7 @@ MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
 MONGO_PORT = int(os.getenv("MONGO_PORT", "27017"))
 MONGO_DATABASE = os.getenv("MONGO_DATABASE")
 MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "photos")
-TEMP_IMAGE_FILE = os.getenv("TEMP_IMAGE_FILE")
+TEMP_IMAGE_FILE = Path(os.getenv("TEMP_IMAGE_FILE"))
 
 # Validate required environment variables
 if not MONGO_DATABASE:
@@ -52,7 +53,7 @@ docs = collection.find(query)
 docs_count = collection.count_documents(query)
 
 try:
-    with open(TEMP_IMAGE_FILE, "w", newline="") as f:
+    with Path.open(TEMP_IMAGE_FILE, "w", newline="") as f:
         csv_writer = csv.writer(f)
         csv_writer.writerow(
             ["SourceFile", "GPSLatitude", "GPSLongitude", "GPSAltitude"],

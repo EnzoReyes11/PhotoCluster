@@ -16,11 +16,13 @@ from exiftool import ExifToolHelper
 
 load_dotenv()
 
-# MongoDB configuration
 MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
 MONGO_PORT = int(os.getenv("MONGO_PORT", "27017"))
 MONGO_DATABASE = os.getenv("MONGO_DATABASE")
 MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "photos")
+
+NAMESPACE_SEPARATOR_PARTS = 2
+
 
 # Validate required environment variables
 required_env_vars = ["MONGO_DATABASE", "SOURCE_IMAGES_DIR_PATH"]
@@ -126,7 +128,7 @@ def normalize_exiftool_data(metadata: dict[str, any]) -> dict[str, any]:
         # Split the key by first colon
         parts = key.split(":", 1)
 
-        new_key = parts[1] if len(parts) == 2 else key
+        new_key = parts[1] if len(parts) == NAMESPACE_SEPARATOR_PARTS else key
 
         normalized[new_key] = value
 
