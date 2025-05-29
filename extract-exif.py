@@ -8,49 +8,16 @@ Step 0.
 
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
-import pymongo
 from dotenv import load_dotenv
 from exiftool import ExifToolHelper
 
-load_dotenv()
+from db import get_mongodb_connection
+from logger import get_logger, setup_logging
 
-MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
-MONGO_PORT = int(os.getenv("MONGO_PORT", "27017"))
-MONGO_DATABASE = os.getenv("MONGO_DATABASE")
-MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "photos")
-
-NAMESPACE_SEPARATOR_PARTS = 2
-
-
-# Validate required environment variables
-required_env_vars = ["MONGO_DATABASE", "SOURCE_IMAGES_DIR_PATH"]
-missing_env_vars = [var for var in required_env_vars if not os.getenv(var)]
-if missing_env_vars:
-    print(f"Missing required environment variables: {', '.join(missing_env_vars)}")
-    sys.exit(1)
-
-SOURCE_IMAGES_DIR_PATH = Path(os.getenv("SOURCE_IMAGES_DIR_PATH"))
-if not Path.is_dir(SOURCE_IMAGES_DIR_PATH):
-    print(f"Source directory does not exist: {SOURCE_IMAGES_DIR_PATH}")
-    sys.exit(1)
-
-UNSUPPORTED_FILES_LOG = Path(
-    os.getenv("UNSUPPORTED_FILES_LOG", "unsupported_files.log"),
-)
-
-try:
-    client = pymongo.MongoClient(MONGO_HOST, MONGO_PORT)
-    client.admin.command("ping")  # Test connection
-    db = client[MONGO_DATABASE]
-    collection = db[MONGO_COLLECTION]
-except pymongo.errors.ServerSelectionTimeoutError as e:
-    print(f"Error connecting to MongoDB: {e}")
-    sys.exit(1)
-except Exception as e:
-    print(f"Unexpected error when setting up MongoDB: {e}")
-    sys.exit(1)
+logger = get_logger(__name__)
 
 
 def read_all_media_files(directory: Path, unsupported_files_log: Path) -> list[str]:
@@ -59,7 +26,6 @@ def read_all_media_files(directory: Path, unsupported_files_log: Path) -> list[s
     Args:
         directory: Root directory to start searching from
         unsupported_files_log: Path to log file for unsupported extensions
-
 
     Returns:
         List of absolute file paths for supported media files
@@ -101,8 +67,6 @@ def read_all_media_files(directory: Path, unsupported_files_log: Path) -> list[s
 
     # Log unsupported extensions
     if unsupported_extensions:
-        from datetime import datetime, timezone
-
         timestamp = datetime.now(timezone.utc).isoformat()
         with Path.open(unsupported_files_log, "a") as log_file:
             log_file.write(
@@ -123,13 +87,12 @@ def normalize_exiftool_data(metadata: dict[str, any]) -> dict[str, any]:
 
     """
     normalized = {}
+    namespace_separator_parts = 2
 
     for key, value in metadata.items():
         # Split the key by first colon
         parts = key.split(":", 1)
-
-        new_key = parts[1] if len(parts) == NAMESPACE_SEPARATOR_PARTS else key
-
+        new_key = parts[1] if len(parts) == namespace_separator_parts else key
         normalized[new_key] = value
 
     return normalized
@@ -138,44 +101,75 @@ def normalize_exiftool_data(metadata: dict[str, any]) -> dict[str, any]:
 def main() -> None:
     """Extract EXIF data from supported media and store metadata in MongoDB."""
     try:
-        # Get all image files
-        file_paths = read_all_media_files(SOURCE_IMAGES_DIR_PATH, UNSUPPORTED_FILES_LOG)
-        print(f"Found {len(file_paths)} image files to process")
+        # Setup logging
+        setup_logging(__file__, log_directory="logs")
 
-        # Process files in batches to avoid memory issues
-        batch_size = 1000
-        for i in range(0, len(file_paths), batch_size):
-            batch = file_paths[i : i + batch_size]
+        # Load environment variables
+        load_dotenv()
 
-            print(
-                f"Processing batch {i // batch_size + 1} of "
-                f"{(len(file_paths) + batch_size - 1) // batch_size}",
-            )
+        # Validate environment variables
+        database = os.getenv("MONGO_DATABASE")
+        source_dir = Path(os.getenv("SOURCE_IMAGES_DIR_PATH", ""))
+        unsupported_files_log = Path(
+            os.getenv("UNSUPPORTED_FILES_LOG", "unsupported_files.log"),
+        )
 
-            with ExifToolHelper() as et:
-                metadata_list = [
-                    metadata
-                    for metadata in et.get_metadata(batch, ["-api", "geolocation"])
-                    if metadata
-                ]
+        if not database:
+            raise ValueError("MONGO_DATABASE environment variable is required")
+        if not source_dir:
+            raise ValueError("SOURCE_IMAGES_DIR_PATH environment variable is required")
+        if not source_dir.is_dir():
+            raise ValueError(f"Source directory does not exist: {source_dir}")
 
-                if metadata_list:
-                    normalized_metadata = [
-                        normalize_exiftool_data(md) for md in metadata_list
+        # Connect to MongoDB
+        client, collection = get_mongodb_connection()
+
+        try:
+            # Get all image files
+            file_paths = read_all_media_files(source_dir, unsupported_files_log)
+            logger.info("Found %d image files to process", len(file_paths))
+
+            # Process files in batches to avoid memory issues
+            batch_size = 1000
+            for i in range(0, len(file_paths), batch_size):
+                batch = file_paths[i : i + batch_size]
+
+                logger.info(
+                    "Processing batch %d of %d",
+                    i // batch_size + 1,
+                    (len(file_paths) + batch_size - 1) // batch_size,
+                )
+
+                with ExifToolHelper() as et:
+                    metadata_list = [
+                        metadata
+                        for metadata in et.get_metadata(batch, ["-api", "geolocation"])
+                        if metadata
                     ]
 
-                    result = collection.insert_many(normalized_metadata)
-                    print(
-                        f"Successfully inserted {len(result.inserted_ids)} photo "
-                        f"metadata records",
-                    )
-                else:
-                    print("No metadata was extracted from the current batch")
+                    if metadata_list:
+                        normalized_metadata = [
+                            normalize_exiftool_data(md) for md in metadata_list
+                        ]
 
-    except Exception as e:
-        print(f"Error during processing: {e}")
-    finally:
-        client.close()
+                        result = collection.insert_many(normalized_metadata)
+                        logger.info(
+                            "Successfully inserted %d photo metadata records",
+                            len(result.inserted_ids),
+                        )
+                    else:
+                        logger.warning(
+                            "No metadata was extracted from the current batch",
+                        )
+
+            logger.info("EXIF extraction completed successfully")
+
+        finally:
+            client.close()
+
+    except Exception:
+        logger.exception("Error during processing")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

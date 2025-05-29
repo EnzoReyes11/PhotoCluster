@@ -8,3 +8,4 @@ coordinates.csv
 .cursorrules
 Image-ExifTool-13.30
 fileViewer
+**/__pycache__
