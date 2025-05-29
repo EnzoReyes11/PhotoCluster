@@ -23,11 +23,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def _raise_value_error(message: str) -> None:
-    """Raise a ValueError with the given message."""
-    raise ValueError(message)
-
-
 def create_safe_dirname(name: str) -> str:
     """Create a safe directory name from a location name.
 
@@ -81,6 +76,24 @@ def get_next_directory_number(base_dir: Path, algorithm: str, separator: str) ->
     ]
 
     return max(numbers, default=0) + 1
+
+
+def _get_validated_output_dir_path_env() -> Path:
+    """Get and validate the OUTPUT_DIR_PATH environment variable."""
+    output_dir_path_str = os.getenv("OUTPUT_DIR_PATH")
+    if not output_dir_path_str:
+        msg = "OUTPUT_DIR_PATH environment variable is required"
+        raise ValueError(msg)
+    return Path(output_dir_path_str)
+
+
+def _get_validated_clustering_algorithm_env() -> str:
+    """Get and validate the CLUSTERING_ALGORITHM environment variable."""
+    algorithm = os.getenv("CLUSTERING_ALGORITHM")
+    if not algorithm:
+        msg = "CLUSTERING_ALGORITHM environment variable is required"
+        raise ValueError(msg)
+    return algorithm
 
 
 def create_cluster_directories(
@@ -182,15 +195,12 @@ def main() -> None:
         load_dotenv()
 
         # Get base output directory and clustering algorithm
-        base_output_dir = Path(os.getenv("OUTPUT_DIR_PATH", ""))
-        algorithm = os.getenv("CLUSTERING_ALGORITHM")
-
-        if not base_output_dir:
-            _raise_value_error("OUTPUT_DIR_PATH environment variable is required")
-        if not algorithm:
-            _raise_value_error(
-                "CLUSTERING_ALGORITHM environment variable is required",
-            )
+        try:
+            base_output_dir = _get_validated_output_dir_path_env()
+            algorithm = _get_validated_clustering_algorithm_env()
+        except ValueError:
+            logger.exception("Configuration error")
+            raise # Re-raise to be caught by the main try-except block
 
         # Create base directory if it doesn't exist
         if not base_output_dir.exists():

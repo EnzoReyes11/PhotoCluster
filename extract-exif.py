@@ -20,11 +20,6 @@ from logger import get_logger, setup_logging
 logger = get_logger(__name__)
 
 
-def _raise_value_error(message: str) -> None:
-    """Raise a ValueError with the given message."""
-    raise ValueError(message)
-
-
 def read_all_media_files(directory: Path, unsupported_files_log: Path) -> list[str]:
     """Read all supported image and video files from a directory tree.
 
@@ -103,6 +98,37 @@ def normalize_exiftool_data(metadata: dict[str, any]) -> dict[str, any]:
     return normalized
 
 
+def _get_validated_mongo_database_env() -> str:
+    """Get and validate the MONGO_DATABASE environment variable."""
+    database = os.getenv("MONGO_DATABASE")
+    if not database:
+        msg = "MONGO_DATABASE environment variable is required"
+        raise ValueError(msg)
+    return database
+
+
+def _get_validated_source_dir_env() -> Path:
+    """Get and validate the SOURCE_IMAGES_DIR_PATH environment variable."""
+    source_dir_str = os.getenv("SOURCE_IMAGES_DIR_PATH")
+    if not source_dir_str:
+        msg = "SOURCE_IMAGES_DIR_PATH environment variable is required"
+        raise ValueError(msg)
+
+    source_dir = Path(source_dir_str)
+    if not source_dir.is_dir():
+        # This check is more about file system state than missing env var.
+        # Raising FileNotFoundError might be more appropriate.
+        # Sticking to ValueError for env var issues.
+        msg = (
+            f"SOURCE_IMAGES_DIR_PATH ('{source_dir}') does not exist or is not a"
+            " directory."
+        ) # Shortened line
+        raise ValueError(
+            msg,
+        )
+    return source_dir
+
+
 def main() -> None:
     """Extract EXIF data from supported media and store metadata in MongoDB."""
     try:
@@ -112,21 +138,22 @@ def main() -> None:
         # Load environment variables
         load_dotenv()
 
-        # Validate environment variables
-        database = os.getenv("MONGO_DATABASE")
-        source_dir = Path(os.getenv("SOURCE_IMAGES_DIR_PATH", ""))
+        # Validate environment variables by calling new helper functions
+        # The try-except block here demonstrates catching errors from helpers.
+        # The main function already has a general try-except, so this
+        # specific block could be removed if only top-level handling is desired.
+        try:
+            _get_validated_mongo_database_env()
+            source_dir = _get_validated_source_dir_env()
+        except ValueError:
+            logger.exception("Configuration error")
+            # Re-raise to be caught by the main try-except block,
+            # or handle more specifically if needed.
+            raise
+
         unsupported_files_log = Path(
             os.getenv("UNSUPPORTED_FILES_LOG", "unsupported_files.log"),
         )
-
-        if not database:
-            _raise_value_error("MONGO_DATABASE environment variable is required")
-        if not source_dir:
-            _raise_value_error(
-                "SOURCE_IMAGES_DIR_PATH environment variable is required",
-            )
-        if not source_dir.is_dir():
-            _raise_value_error(f"Source directory does not exist: {source_dir}")
 
         # Connect to MongoDB
         client, collection = get_mongodb_connection()

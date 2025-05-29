@@ -32,16 +32,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def _raise_value_error(message: str) -> None:
-    """Raise a ValueError with the given message."""
-    raise ValueError(message)
-
-
-def _raise_file_not_found_error(message: str) -> None:
-    """Raise a FileNotFoundError with the given message."""
-    raise FileNotFoundError(message)
-
-
 def calculate_distances(coords: np.ndarray, method: str = "haversine") -> np.ndarray:
     """Calculate distances between points using the specified method.
 
@@ -98,19 +88,52 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _ensure_mongo_database_env_var_present() -> str:
+    """Ensure MONGO_DATABASE environment variable is present and return it."""
+    database = os.getenv("MONGO_DATABASE")
+    if not database:
+        msg = "MONGO_DATABASE environment variable is required"
+        raise ValueError(msg)
+    return database
+
+
+def _ensure_temp_image_file_env_var_present() -> Path:
+    """Ensure TEMP_IMAGE_FILE environment variable is present and return it."""
+    temp_image_file_path_str = os.getenv("TEMP_IMAGE_FILE")
+    if not temp_image_file_path_str:
+        msg = "TEMP_IMAGE_FILE environment variable is required"
+        raise ValueError(msg)
+    return Path(temp_image_file_path_str)
+
+
+def _ensure_file_exists(path: Path, file_description: str) -> None:
+    """Ensure path exists and is a file, raising FileNotFoundError otherwise."""
+    if not path.is_file():
+        msg = f"{file_description} ({path}) does not exist or is not a file."
+        raise FileNotFoundError(msg)
+
+
 def _load_and_validate_env_vars() -> tuple[str, Path]:
     """Load and validate environment variables."""
     load_dotenv()
-    database = os.getenv("MONGO_DATABASE")
-    temp_image_file = Path(os.getenv("TEMP_IMAGE_FILE", ""))
+    # The try-except block here is to demonstrate catching errors from helpers
+    # and potentially re-raising or handling them as needed.
+    # For this specific refactoring, direct calls without try-except in this function
+    # would also work if the main function's try-except is deemed sufficient.
+    try:
+        database = _ensure_mongo_database_env_var_present()
+        temp_image_file = _ensure_temp_image_file_env_var_present()
 
-    if not database:
-        _raise_value_error("MONGO_DATABASE environment variable is required")
-    if not temp_image_file or not temp_image_file.is_file():
-        _raise_file_not_found_error(
-            "Environment variable TEMP_IMAGE_FILE is not set or points to a"
-            " non-existent file.",
-        )
+        # Explicitly check if temp_image_file is a file, after ensuring var is present.
+        _ensure_file_exists(temp_image_file, "TEMP_IMAGE_FILE")
+
+    except ValueError: # Catching specific errors from helpers
+        logger.exception("Configuration error")
+        raise # Re-raise to be caught by the main try-except block
+    except FileNotFoundError:
+        logger.exception("File system error")
+        raise # Re-raise to be caught by the main try-except block
+
     return database, temp_image_file
 
 

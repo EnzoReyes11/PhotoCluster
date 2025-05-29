@@ -16,9 +16,24 @@ from logger import get_logger, setup_logging
 logger = get_logger(__name__)
 
 
-def _raise_value_error(message: str) -> None:
-    """Raise a ValueError with the given message."""
-    raise ValueError(message)
+def _get_validated_google_maps_api_key_env() -> str:
+    """Get and validate the GOOGLE_MAPS_API_KEY environment variable."""
+    api_key = os.getenv("GOOGLE_MAPS_API_KEY")
+    if not api_key or api_key == "your_api_key":
+        msg = "Valid GOOGLE_MAPS_API_KEY environment variable is required"
+        raise ValueError(
+            msg,
+        )
+    return api_key
+
+
+def _get_validated_mongo_database_env() -> str:
+    """Get and validate the MONGO_DATABASE environment variable."""
+    database = os.getenv("MONGO_DATABASE")
+    if not database:
+        msg = "MONGO_DATABASE environment variable is required"
+        raise ValueError(msg)
+    return database
 
 
 def main() -> None:
@@ -31,15 +46,12 @@ def main() -> None:
         load_dotenv()
 
         # Validate environment variables
-        api_key = os.getenv("GOOGLE_MAPS_API_KEY", "your_api_key")
-        database = os.getenv("MONGO_DATABASE")
-
-        if not api_key or api_key == "your_api_key":
-            _raise_value_error(
-                "Valid GOOGLE_MAPS_API_KEY environment variable is required",
-            )
-        if not database:
-            _raise_value_error("MONGO_DATABASE environment variable is required")
+        try:
+            api_key = _get_validated_google_maps_api_key_env()
+            _get_validated_mongo_database_env()
+        except ValueError:
+            logger.exception("Configuration error")
+            raise # Re-raise to be caught by the main try-except block
 
         # Connect to MongoDB
         client, collection = get_mongodb_connection()
