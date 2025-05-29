@@ -4,93 +4,153 @@ Runs reverse Geocoding for each cluster, and updates the MongoDB collection with
 this information.
 """
 
+import logging
 import os
 import sys
+from pathlib import Path
 
 import googlemaps
 import pymongo
 from dotenv import load_dotenv
 
-load_dotenv()
-
-API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "your_api_key")
-MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
-MONGO_PORT = int(os.getenv("MONGO_PORT", "27017"))
-MONGO_DATABASE = os.getenv("MONGO_DATABASE", "photoLocator")
-MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "photos")
+logger = logging.getLogger(__name__)
 
 
-if not API_KEY or API_KEY == "your_api_key":
-    raise ValueError("Valid GOOGLE_MAPS_API_KEY environment variable is required")
-if not MONGO_DATABASE:
-    raise ValueError("MONGO_DATABASE environment variable is required")
-
-# Find all center photos that need reverse geocoding
-try:
-    myclient = pymongo.MongoClient(
-        MONGO_HOST,
-        MONGO_PORT,
+def setup_logging() -> None:
+    """Configure logging for the application."""
+    current_file = Path(__file__).stem
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(f"{current_file}.log"),
+        ],
     )
-    myclient.admin.command("ping")
-
-    db = myclient[MONGO_DATABASE]
-    collection = db[MONGO_COLLECTION]
-
-    query = {"cluster.isCenter": True}
-    center_count = collection.count_documents(query)
-    center_photos = collection.find(query)
-
-    print(f"Found {center_count} center photos to process")
-except pymongo.errors.ServerSelectionTimeoutError as e:
-    print(f"Error connecting to MongoDB: {e}")
-    sys.exit(1)
-except Exception as e:
-    print(f"Unexpected error when setting up MongoDB: {e}")
-    sys.exit(1)
 
 
-try:
-    gmaps = googlemaps.Client(key=API_KEY)
-except Exception as e:
-    print(f"Error initializing Google Maps client: {e}")
-    gmaps = None
+def get_mongodb_connection() -> tuple[
+    pymongo.MongoClient, pymongo.collection.Collection
+]:
+    """Establish connection to MongoDB.
 
-location_names = {}
+    Returns:
+        Tuple of (MongoDB client, collection)
 
-if gmaps:
-    print("Processing center photos coordinates...")
-    for photo in center_photos:
-        try:
-            lat = float(photo["GPSLatitude"])
-            lon = float(photo["GPSLongitude"])
-        except (TypeError, ValueError, KeyError):
-            print(f"  -> Skipping document {photo.get('_id')} – invalid GPS data")
-            continue
-        coordinate_tuple = (lat, lon)
+    Raises:
+        pymongo.errors.ServerSelectionTimeoutError: If cannot connect to MongoDB
+        Exception: For other unexpected errors
 
-        print(f"\nLooking up coordinates: {coordinate_tuple}")
-        try:
-            reverse_geocode_result = gmaps.reverse_geocode(
-                coordinate_tuple,
-                result_type="political",
+    """
+    host = os.getenv("MONGO_HOST", "localhost")
+    port = int(os.getenv("MONGO_PORT", "27017"))
+    database = os.getenv("MONGO_DATABASE")
+    collection_name = os.getenv("MONGO_COLLECTION", "photos")
+
+    if not database:
+        raise ValueError("MONGO_DATABASE environment variable is required")
+
+    client = pymongo.MongoClient(host, port)
+    client.admin.command("ping")  # Test connection
+    db = client[database]
+    collection = db[collection_name]
+
+    return client, collection
+
+
+def main() -> None:
+    """Run reverse geocoding for cluster centers and update MongoDB records."""
+    try:
+        # Setup logging
+        setup_logging()
+
+        # Load environment variables
+        load_dotenv()
+
+        # Validate environment variables
+        api_key = os.getenv("GOOGLE_MAPS_API_KEY", "your_api_key")
+        database = os.getenv("MONGO_DATABASE")
+
+        if not api_key or api_key == "your_api_key":
+            raise ValueError(
+                "Valid GOOGLE_MAPS_API_KEY environment variable is required"
             )
+        if not database:
+            raise ValueError("MONGO_DATABASE environment variable is required")
 
-            if reverse_geocode_result:
-                location_name = reverse_geocode_result[0]["formatted_address"]
-                print(f"  -> Found Location: {location_name}")
+        # Connect to MongoDB
+        client, collection = get_mongodb_connection()
 
-                collection.update_many(
-                    {"cluster.id": photo["cluster"]["id"]},
-                    {"$set": {"cluster.locationName": location_name}},
-                )
-            else:
-                print(f"  -> No address found for coordinates: {coordinate_tuple}")
+        try:
+            # Find all center photos that need reverse geocoding
+            query = {"cluster.isCenter": True}
+            center_count = collection.count_documents(query)
+            center_photos = collection.find(query)
 
-        except googlemaps.exceptions.ApiError as e:
-            print(f"  -> Google Maps API Error for {coordinate_tuple}: {e}")
-        except Exception as e:
-            print(f"  -> An unexpected error occurred for {coordinate_tuple}: {e}")
+            logger.info("Found %d center photos to process", center_count)
 
-    print("\n--- Processing Complete ---")
-else:
-    print("Could not proceed without a valid Google Maps client.")
+            # Initialize Google Maps client
+            try:
+                gmaps = googlemaps.Client(key=api_key)
+            except Exception:
+                logger.exception("Error initializing Google Maps client")
+                return
+
+            # Process each center photo
+            for photo in center_photos:
+                try:
+                    lat = float(photo["GPSLatitude"])
+                    lon = float(photo["GPSLongitude"])
+                except (TypeError, ValueError, KeyError):
+                    logger.warning(
+                        "Skipping document %s – invalid GPS data",
+                        photo.get("_id"),
+                    )
+                    continue
+
+                coordinate_tuple = (lat, lon)
+                logger.info("Looking up coordinates: %s", coordinate_tuple)
+
+                try:
+                    reverse_geocode_result = gmaps.reverse_geocode(
+                        coordinate_tuple,
+                        result_type="political",
+                    )
+
+                    if reverse_geocode_result:
+                        location_name = reverse_geocode_result[0]["formatted_address"]
+                        logger.info("Found Location: %s", location_name)
+
+                        collection.update_many(
+                            {"cluster.id": photo["cluster"]["id"]},
+                            {"$set": {"cluster.locationName": location_name}},
+                        )
+                    else:
+                        logger.warning(
+                            "No address found for coordinates: %s",
+                            coordinate_tuple,
+                        )
+
+                except googlemaps.exceptions.ApiError:
+                    logger.exception(
+                        "Google Maps API Error for %s",
+                        coordinate_tuple,
+                    )
+                except Exception:
+                    logger.exception(
+                        "An unexpected error occurred for %s",
+                        coordinate_tuple,
+                    )
+
+            logger.info("Reverse geocoding completed successfully")
+
+        finally:
+            client.close()
+
+    except Exception:
+        logger.exception("Error during processing")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

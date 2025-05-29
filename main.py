@@ -7,6 +7,7 @@ Step 1.
 """
 
 import csv
+import logging
 import os
 import sys
 from pathlib import Path
@@ -14,62 +15,99 @@ from pathlib import Path
 import pymongo
 from dotenv import load_dotenv
 
-load_dotenv()
+logger = logging.getLogger(__name__)
 
-MONGO_HOST = os.getenv("MONGO_HOST", "localhost")
-MONGO_PORT = int(os.getenv("MONGO_PORT", "27017"))
-MONGO_DATABASE = os.getenv("MONGO_DATABASE")
-MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "photos")
-TEMP_IMAGE_FILE = Path(os.getenv("TEMP_IMAGE_FILE"))
 
-# Validate required environment variables
-if not MONGO_DATABASE:
-    raise ValueError("MONGO_DATABASE environment variable is required")
-if not TEMP_IMAGE_FILE:
-    raise ValueError("TEMP_IMAGE_FILE environment variable is required")
-
-try:
-    myclient = pymongo.MongoClient(
-        MONGO_HOST,
-        MONGO_PORT,
+def setup_logging() -> None:
+    """Configure logging for the application."""
+    current_file = Path(__file__).stem
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(f"{current_file}.log"),
+        ],
     )
-    myclient.admin.command("ping")
-    db = myclient[MONGO_DATABASE]
-    collection = db[MONGO_COLLECTION]
-except pymongo.errors.ServerSelectionTimeoutError as e:
-    print(f"Error connecting to MongoDB: {e}")
-    sys.exit(1)
-except Exception as e:
-    print(f"Unexpected error when setting up MongoDB: {e}")
-    sys.exit(1)
 
-# Create indexes for efficient querying
-collection.create_index("cluster.id")
-collection.create_index("cluster.isCenter")
-collection.create_index("cluster.locationName")
 
-query = {"$and": [{"GPSPosition": {"$ne": None}}, {"GPSAltitude": {"$ne": None}}]}
-docs = collection.find(query)
-docs_count = collection.count_documents(query)
+def main() -> None:
+    """Generate CSV with media elements that have GPS data."""
+    try:
+        # Setup logging
+        setup_logging()
 
-try:
-    with Path.open(TEMP_IMAGE_FILE, "w", newline="") as f:
-        csv_writer = csv.writer(f)
-        csv_writer.writerow(
-            ["SourceFile", "GPSLatitude", "GPSLongitude", "GPSAltitude"],
+        # Load environment variables
+        load_dotenv()
+
+        # Validate environment variables
+        database = os.getenv("MONGO_DATABASE")
+        temp_image_file = Path(os.getenv("TEMP_IMAGE_FILE", ""))
+
+        if not database:
+            raise ValueError("MONGO_DATABASE environment variable is required")
+        if not temp_image_file:
+            raise ValueError("TEMP_IMAGE_FILE environment variable is required")
+
+        # Connect to MongoDB
+        client = pymongo.MongoClient(
+            os.getenv("MONGO_HOST", "localhost"),
+            int(os.getenv("MONGO_PORT", "27017")),
         )
+        client.admin.command("ping")
+        db = client[database]
+        collection = db[os.getenv("MONGO_COLLECTION", "photos")]
 
-        for key in docs:
-            csv_writer.writerow(
-                [
-                    key["SourceFile"],
-                    key["GPSLatitude"],
-                    key["GPSLongitude"],
-                    key["GPSAltitude"],
+        try:
+            # Create indexes for efficient querying
+            collection.create_index("cluster.id")
+            collection.create_index("cluster.isCenter")
+            collection.create_index("cluster.locationName")
+
+            # Query documents with GPS data
+            query = {
+                "$and": [
+                    {"GPSPosition": {"$ne": None}},
+                    {"GPSAltitude": {"$ne": None}},
                 ],
+            }
+            docs = collection.find(query)
+            docs_count = collection.count_documents(query)
+
+            # Write to CSV
+            with Path.open(temp_image_file, "w", newline="") as f:
+                csv_writer = csv.writer(f)
+                csv_writer.writerow(
+                    ["SourceFile", "GPSLatitude", "GPSLongitude", "GPSAltitude"],
+                )
+
+                for key in docs:
+                    csv_writer.writerow(
+                        [
+                            key["SourceFile"],
+                            key["GPSLatitude"],
+                            key["GPSLongitude"],
+                            key["GPSAltitude"],
+                        ],
+                    )
+            logger.info(
+                "Successfully wrote %d records to %s",
+                docs_count,
+                temp_image_file,
             )
-    print(f"Successfully wrote {docs_count} records to {TEMP_IMAGE_FILE}")
-except OSError as e:
-    print(f"Error writing to CSV file: {e}")
-except Exception as e:
-    print(f"Unexpected error during CSV export: {e}")
+
+        finally:
+            client.close()
+
+    except pymongo.errors.ServerSelectionTimeoutError:
+        logger.exception("Error connecting to MongoDB")
+        sys.exit(1)
+    except OSError:
+        logger.exception("Error writing to CSV file")
+    except Exception:
+        logger.exception("Error during processing")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
