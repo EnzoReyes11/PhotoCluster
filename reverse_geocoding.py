@@ -16,6 +16,11 @@ from logger import get_logger, setup_logging
 logger = get_logger(__name__)
 
 
+def _raise_value_error(message: str) -> None:
+    """Raise a ValueError with the given message."""
+    raise ValueError(message)
+
+
 def main() -> None:
     """Run reverse geocoding for cluster centers and update MongoDB records."""
     try:
@@ -30,11 +35,11 @@ def main() -> None:
         database = os.getenv("MONGO_DATABASE")
 
         if not api_key or api_key == "your_api_key":
-            raise ValueError(
+            _raise_value_error(
                 "Valid GOOGLE_MAPS_API_KEY environment variable is required",
             )
         if not database:
-            raise ValueError("MONGO_DATABASE environment variable is required")
+            _raise_value_error("MONGO_DATABASE environment variable is required")
 
         # Connect to MongoDB
         client, collection = get_mongodb_connection()
@@ -61,7 +66,7 @@ def main() -> None:
                     lon = float(photo["GPSLongitude"])
                 except (TypeError, ValueError, KeyError):
                     logger.warning(
-                        "Skipping document %s – invalid GPS data",
+                        "Skipping document %s - invalid GPS data",
                         photo.get("_id"),
                     )
                     continue

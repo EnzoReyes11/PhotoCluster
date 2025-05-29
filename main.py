@@ -19,6 +19,11 @@ from logger import get_logger, setup_logging
 logger = get_logger(__name__)
 
 
+def _raise_value_error(message: str) -> None:
+    """Raise a ValueError with the given message."""
+    raise ValueError(message)
+
+
 def main() -> None:
     """Generate CSV with media elements that have GPS data."""
     try:
@@ -33,9 +38,9 @@ def main() -> None:
         temp_image_file = Path(os.getenv("TEMP_IMAGE_FILE", ""))
 
         if not database:
-            raise ValueError("MONGO_DATABASE environment variable is required")
+            _raise_value_error("MONGO_DATABASE environment variable is required")
         if not temp_image_file:
-            raise ValueError("TEMP_IMAGE_FILE environment variable is required")
+            _raise_value_error("TEMP_IMAGE_FILE environment variable is required")
 
         # Connect to MongoDB
         client, collection = get_mongodb_connection()

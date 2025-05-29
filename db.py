@@ -32,14 +32,16 @@ def get_mongodb_connection() -> tuple[pymongo.MongoClient, Collection]:
 
     try:
         port = int(port_str)
-    except ValueError:
-        raise ValueError(f"MONGO_PORT must be a valid integer, got: {port_str}")
+    except ValueError as err:
+        msg = f"MONGO_PORT must be a valid integer, got: {port_str}"
+        raise ValueError(msg) from err
 
     database = os.getenv("MONGO_DATABASE")
     collection_name = os.getenv("MONGO_COLLECTION", "photos")
 
     if not database:
-        raise ValueError("MONGO_DATABASE environment variable is required")
+        msg = "MONGO_DATABASE environment variable is required"
+        raise ValueError(msg)
 
     client = pymongo.MongoClient(host, port)
     try:

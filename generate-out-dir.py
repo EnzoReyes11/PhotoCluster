@@ -23,6 +23,11 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _raise_value_error(message: str) -> None:
+    """Raise a ValueError with the given message."""
+    raise ValueError(message)
+
+
 def create_safe_dirname(name: str) -> str:
     """Create a safe directory name from a location name.
 
@@ -181,9 +186,11 @@ def main() -> None:
         algorithm = os.getenv("CLUSTERING_ALGORITHM")
 
         if not base_output_dir:
-            raise ValueError("OUTPUT_DIR_PATH environment variable is required")
+            _raise_value_error("OUTPUT_DIR_PATH environment variable is required")
         if not algorithm:
-            raise ValueError("CLUSTERING_ALGORITHM environment variable is required")
+            _raise_value_error(
+                "CLUSTERING_ALGORITHM environment variable is required",
+            )
 
         # Create base directory if it doesn't exist
         if not base_output_dir.exists():

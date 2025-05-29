@@ -20,6 +20,11 @@ from logger import get_logger, setup_logging
 logger = get_logger(__name__)
 
 
+def _raise_value_error(message: str) -> None:
+    """Raise a ValueError with the given message."""
+    raise ValueError(message)
+
+
 def read_all_media_files(directory: Path, unsupported_files_log: Path) -> list[str]:
     """Read all supported image and video files from a directory tree.
 
@@ -115,11 +120,13 @@ def main() -> None:
         )
 
         if not database:
-            raise ValueError("MONGO_DATABASE environment variable is required")
+            _raise_value_error("MONGO_DATABASE environment variable is required")
         if not source_dir:
-            raise ValueError("SOURCE_IMAGES_DIR_PATH environment variable is required")
+            _raise_value_error(
+                "SOURCE_IMAGES_DIR_PATH environment variable is required",
+            )
         if not source_dir.is_dir():
-            raise ValueError(f"Source directory does not exist: {source_dir}")
+            _raise_value_error(f"Source directory does not exist: {source_dir}")
 
         # Connect to MongoDB
         client, collection = get_mongodb_connection()
