@@ -164,7 +164,7 @@ def create_cluster_directories(
             # Create symlinks for each member
             for member in members:
                 source_file = Path(member["SourceFile"])
-                if not Path.exists(source_file):
+                if not source_file.exists():
                     logger.warning(
                         "Source file does not exist: %s",
                         source_file,
