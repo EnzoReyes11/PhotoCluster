@@ -7,28 +7,16 @@ Step 1.
 """
 
 import csv
-import logging
 import os
 import sys
 from pathlib import Path
 
-import pymongo
 from dotenv import load_dotenv
 
-logger = logging.getLogger(__name__)
+from db import get_mongodb_connection
+from logger import get_logger, setup_logging
 
-
-def setup_logging() -> None:
-    """Configure logging for the application."""
-    current_file = Path(__file__).stem
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler(f"{current_file}.log"),
-        ],
-    )
+logger = get_logger(__name__)
 
 
 def main() -> None:
@@ -50,13 +38,7 @@ def main() -> None:
             raise ValueError("TEMP_IMAGE_FILE environment variable is required")
 
         # Connect to MongoDB
-        client = pymongo.MongoClient(
-            os.getenv("MONGO_HOST", "localhost"),
-            int(os.getenv("MONGO_PORT", "27017")),
-        )
-        client.admin.command("ping")
-        db = client[database]
-        collection = db[os.getenv("MONGO_COLLECTION", "photos")]
+        client, collection = get_mongodb_connection()
 
         try:
             # Create indexes for efficient querying
@@ -99,11 +81,6 @@ def main() -> None:
         finally:
             client.close()
 
-    except pymongo.errors.ServerSelectionTimeoutError:
-        logger.exception("Error connecting to MongoDB")
-        sys.exit(1)
-    except OSError:
-        logger.exception("Error writing to CSV file")
     except Exception:
         logger.exception("Error during processing")
         sys.exit(1)

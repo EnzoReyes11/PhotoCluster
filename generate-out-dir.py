@@ -7,58 +7,20 @@ media files for each cluster member.
 Step 3.
 """
 
-import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-import pymongo
 from dotenv import load_dotenv
-from pymongo.collection import Collection
 
-logger = logging.getLogger(__name__)
+from db import get_mongodb_connection
+from logger import get_logger, setup_logging
 
+if TYPE_CHECKING:
+    from pymongo.collection import Collection
 
-def setup_logging() -> None:
-    """Configure logging for the application."""
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler("generate-output-dir.log"),
-        ],
-    )
-
-
-def get_mongodb_connection() -> tuple[
-    pymongo.MongoClient,
-    Collection,
-]:
-    """Establish connection to MongoDB.
-
-    Returns:
-        Tuple of (MongoDB client, collection)
-
-    Raises:
-        pymongo.errors.ServerSelectionTimeoutError: If cannot connect to MongoDB
-        Exception: For other unexpected errors
-
-    """
-    host = os.getenv("MONGO_HOST", "localhost")
-    port = int(os.getenv("MONGO_PORT", "27017"))
-    database = os.getenv("MONGO_DATABASE")
-    collection_name = os.getenv("MONGO_COLLECTION", "photos")
-
-    if not database:
-        raise ValueError("MONGO_DATABASE environment variable is required")
-
-    client = pymongo.MongoClient(host, port)
-    client.admin.command("ping")  # Test connection
-    db = client[database]
-    collection = db[collection_name]
-
-    return client, collection
+logger = get_logger(__name__)
 
 
 def create_safe_dirname(name: str) -> str:
@@ -117,7 +79,7 @@ def get_next_directory_number(base_dir: Path, algorithm: str, separator: str) ->
 
 
 def create_cluster_directories(
-    collection: pymongo.collection.Collection,
+    collection: "Collection",
     output_dir: Path,
 ) -> None:
     """Create directories for each cluster and symlink media files.
