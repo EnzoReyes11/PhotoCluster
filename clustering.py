@@ -72,7 +72,7 @@ def main() -> None:
     """Run clustering algorithm and update MongoDB records."""
     try:
         # Setup logging
-        setup_logging()
+        setup_logging(__file__, log_directory="logs")
 
         # Load environment variables
         load_dotenv()

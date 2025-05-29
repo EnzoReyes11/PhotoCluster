@@ -20,7 +20,7 @@ def main() -> None:
     """Run reverse geocoding for cluster centers and update MongoDB records."""
     try:
         # Setup logging
-        setup_logging()
+        setup_logging(__file__, log_directory="logs")
 
         # Load environment variables
         load_dotenv()

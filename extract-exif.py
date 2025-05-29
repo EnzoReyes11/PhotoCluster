@@ -102,7 +102,7 @@ def main() -> None:
     """Extract EXIF data from supported media and store metadata in MongoDB."""
     try:
         # Setup logging
-        setup_logging()
+        setup_logging(__file__, log_directory="logs")
 
         # Load environment variables
         load_dotenv()
