@@ -16,9 +16,6 @@ from utils.env_utils import get_required_env_var
 logger = get_logger(__name__)
 
 
-# Old google_maps_api_key_env helper removed (uses utils)
-# Old mongo_database_env helper removed (uses db.py)
-
 def _raise_if_api_key_is_placeholder(api_key: str) -> None:
     """Raise ValueError if the provided API key is the placeholder value."""
     if api_key == "your_api_key":
@@ -29,45 +26,39 @@ def _raise_if_api_key_is_placeholder(api_key: str) -> None:
         )
         raise ValueError(err_msg)
 
+
 def main() -> None:
     """Run reverse geocoding for cluster centers and update MongoDB records."""
     try:
-        # Setup logging
         setup_logging(__file__, log_directory="logs")
 
-        # Load environment variables
         load_dotenv()
 
-        # Validate environment variables
         try:
-            # MONGO_DATABASE validation is handled by db.py via get_mongodb_connection()
             api_key = get_required_env_var(
-                var_name="GOOGLE_MAPS_API_KEY", purpose="Google Maps API access",
+                var_name="GOOGLE_MAPS_API_KEY",
+                purpose="Google Maps API access",
             )
             _raise_if_api_key_is_placeholder(api_key)
-        except ValueError: # Catches from get_required_env_var or placeholder check
+        except ValueError:
             logger.exception("Environment variable validation failed")
-            raise # Re-raise to be caught by the main try-except block
+            raise
 
-        # Connect to MongoDB
         client, collection = get_mongodb_connection()
 
         try:
-            # Find all center photos that need reverse geocoding
             query = {"cluster.isCenter": True}
             center_count = collection.count_documents(query)
             center_photos = collection.find(query)
 
             logger.info("Found %d center photos to process", center_count)
 
-            # Initialize Google Maps client
             try:
                 gmaps = googlemaps.Client(key=api_key)
             except Exception:
                 logger.exception("Error initializing Google Maps client")
                 return
 
-            # Process each center photo
             for photo in center_photos:
                 try:
                     lat = float(photo["GPSLatitude"])
@@ -118,7 +109,7 @@ def main() -> None:
         finally:
             client.close()
 
-    except Exception: # General exception handler
+    except Exception:
         logger.exception("Reverse geocoding process failed")
         sys.exit(1)
 

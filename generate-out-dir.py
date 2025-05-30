@@ -60,7 +60,7 @@ def get_next_directory_number(base_dir: Path, algorithm: str, separator: str) ->
     if not base_dir.exists():
         return 1
 
-    # Find all directories matching the pattern algorithm_*
+    # Find all directories matching the pattern <algorithm>{separator}*
     existing_dirs = [
         d.name
         for d in base_dir.iterdir()
@@ -70,7 +70,6 @@ def get_next_directory_number(base_dir: Path, algorithm: str, separator: str) ->
     if not existing_dirs:
         return 1
 
-    # Extract numbers from directory names using list comprehension
     numbers = [
         int(dir_name.split(separator)[-1])
         for dir_name in existing_dirs
@@ -79,9 +78,6 @@ def get_next_directory_number(base_dir: Path, algorithm: str, separator: str) ->
 
     return max(numbers, default=0) + 1
 
-
-# Old output_dir_path_env helper removed (now uses utils)
-# Old clustering_algorithm_env helper removed (now uses utils)
 
 def create_cluster_directories(
     collection: "Collection",
@@ -110,7 +106,6 @@ def create_cluster_directories(
             location_name = cluster["cluster"]["locationName"]
             cluster_id = cluster["cluster"]["id"]
 
-            # Create safe directory name
             dir_name = create_safe_dirname(location_name)
             cluster_dir = output_dir / dir_name
 
@@ -175,16 +170,14 @@ def create_cluster_directories(
 def main() -> None:
     """Organize media files into cluster directories."""
     try:
-        # Setup logging
         setup_logging(__file__, log_directory="logs")
 
-        # Load environment variables
         load_dotenv()
 
-        # Get and validate environment variables
         try:
             output_dir_path_str = get_required_env_var(
-                var_name="OUTPUT_DIR_PATH", purpose="base output directory path",
+                var_name="OUTPUT_DIR_PATH",
+                purpose="base output directory path",
             )
             base_output_dir = Path(output_dir_path_str)
             # Ensure the base output directory exists, create if not
@@ -197,7 +190,7 @@ def main() -> None:
             )
         except (ValueError, FileNotFoundError, NotADirectoryError):
             logger.exception("Environment variable or path validation failed")
-            raise # Re-raise to be caught by the main try-except block
+            raise  # Re-raise to be caught by the main try-except block
 
         # Determine and create the specific numbered output directory for this run
         separator = "-"
@@ -208,7 +201,6 @@ def main() -> None:
         ensure_directory_exists(output_dir_for_run, create_if_not_exists=True)
         logger.info("Created run-specific output directory: %s", output_dir_for_run)
 
-        # Connect to MongoDB
         client, collection = get_mongodb_connection()
 
         try:
@@ -218,7 +210,7 @@ def main() -> None:
         finally:
             client.close()
 
-    except Exception: # General exception handler
+    except Exception:
         logger.exception("Output directory generation process failed")
         sys.exit(1)
 

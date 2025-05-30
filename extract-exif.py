@@ -18,10 +18,25 @@ from db import get_mongodb_connection
 from logger import get_logger, setup_logging
 from utils.fs_utils import get_validated_path_from_env
 
-# get_required_env_var is not directly used here, but fs_utils uses it.
-# No need to import it directly unless other non-path env vars were being handled.
-
 logger = get_logger(__name__)
+
+
+# Add debug logging for environment variables
+def debug_env_vars() -> None:
+    """Log environment variables for debugging."""
+    logger.debug("Current working directory: %s", os.getcwd())
+    logger.debug("MONGO_HOST: %s", os.getenv("MONGO_HOST"))
+    logger.debug("MONGO_PORT: %s", os.getenv("MONGO_PORT"))
+    logger.debug("MONGO_DATABASE: %s", os.getenv("MONGO_DATABASE"))
+
+
+def _log_unsupported_extensions(unsupported_extensions, unsupported_files_log):
+    if unsupported_extensions:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        with Path.open(unsupported_files_log, "a") as log_file:
+            log_file.write(
+                f"{timestamp}: {', '.join(sorted(unsupported_extensions))}\n",
+            )
 
 
 def read_all_media_files(directory: Path, unsupported_files_log: Path) -> list[str]:
@@ -69,13 +84,7 @@ def read_all_media_files(directory: Path, unsupported_files_log: Path) -> list[s
     # Start recursive file reading
     read_all_files_rec(directory)
 
-    # Log unsupported extensions
-    if unsupported_extensions:
-        timestamp = datetime.now(timezone.utc).isoformat()
-        with Path.open(unsupported_files_log, "a") as log_file:
-            log_file.write(
-                f"{timestamp}: {', '.join(sorted(unsupported_extensions))}\n",
-            )
+    _log_unsupported_extensions(unsupported_extensions, unsupported_files_log)
 
     return file_paths
 
@@ -102,21 +111,15 @@ def normalize_exiftool_data(metadata: dict[str, any]) -> dict[str, any]:
     return normalized
 
 
-# Removed _get_validated_mongo_database_env (handled by db.py)
-# Removed _get_validated_source_dir_env (replaced by get_validated_path_from_env)
-
 def main() -> None:
     """Extract EXIF data from supported media and store metadata in MongoDB."""
     try:
-        # Setup logging
         setup_logging(__file__, log_directory="logs")
 
-        # Load environment variables
         load_dotenv()
+        debug_env_vars()  # Add debug logging
 
-        # Validate environment variables
         try:
-            # MONGO_DATABASE validation is handled by db.py via get_mongodb_connection()
             source_dir = get_validated_path_from_env(
                 var_name="SOURCE_IMAGES_DIR_PATH",
                 purpose="source directory for images",
@@ -124,20 +127,16 @@ def main() -> None:
                 check_is_dir=True,
             )
         except (ValueError, FileNotFoundError, NotADirectoryError):
-            # Catching specific errors from the utility
             logger.exception("Environment variable or path validation failed")
-            # Re-raise to be caught by the main try-except block
             raise
 
         unsupported_files_log = Path(
             os.getenv("UNSUPPORTED_FILES_LOG", "unsupported_files.log"),
         )
 
-        # Connect to MongoDB
         client, collection = get_mongodb_connection()
 
         try:
-            # Get all image files
             file_paths = read_all_media_files(source_dir, unsupported_files_log)
             logger.info("Found %d image files to process", len(file_paths))
 
@@ -179,7 +178,7 @@ def main() -> None:
         finally:
             client.close()
 
-    except Exception: # General exception handler
+    except Exception:
         logger.exception("EXIF extraction process failed")
         sys.exit(1)
 

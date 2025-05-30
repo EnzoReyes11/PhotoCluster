@@ -6,6 +6,7 @@ information.
 
 Step 2.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -93,7 +94,8 @@ def _parse_args() -> argparse.Namespace:
 # Removed _ensure_temp_image_file_env_var_present (now use get_validated_path_from_env)
 # Removed _ensure_file_exists (now use get_validated_path_from_env)
 
-def _load_and_validate_env_vars() -> Path: # Only returns temp_image_file now
+
+def _load_and_validate_env_vars() -> Path:  # Only returns temp_image_file now
     """Load and validate environment variables using utility functions."""
     load_dotenv()
     try:
@@ -105,11 +107,11 @@ def _load_and_validate_env_vars() -> Path: # Only returns temp_image_file now
             check_exists=True,
             check_is_file=True,
         )
-    except (ValueError, FileNotFoundError): # Catching errors from the utility
+    except (ValueError, FileNotFoundError):  # Catching errors from the utility
         logger.exception("Environment variable validation failed")
-        raise # Re-raise to be caught by main's try-except
+        raise  # Re-raise to be caught by main's try-except
 
-    return temp_image_file # Return only temp_image_file
+    return temp_image_file  # Return only temp_image_file
 
 
 def _load_data(temp_image_file: Path) -> tuple[pd.DataFrame, np.ndarray]:
@@ -206,7 +208,7 @@ def _update_database(
         )
         logger.info(
             "Estimated number of clusters based on labels: %d",
-            n_clusters_from_labels, # Use the new variable name
+            n_clusters_from_labels,  # Use the new variable name
         )
         for cluster_id in unique_labels:
             cluster_members_indices = np.where(labels == cluster_id)[0]
@@ -220,6 +222,24 @@ def _update_database(
         logger.warning("Affinity Propagation did not converge or found no clusters.")
         # If af object is available here, we could log af.n_iter_
         # Consider passing 'af' to this function if n_iter_ is important.
+
+
+def _log_cluster_metrics(cluster_centers_indices, labels):
+    # Log clustering metrics
+    n_clusters = (
+        len(cluster_centers_indices) if cluster_centers_indices is not None else 0
+    )
+    logger.info("Estimated number of clusters: %d", n_clusters)
+    logger.info("Homogeneity: %.3f", metrics.homogeneity_score(labels, labels))
+    logger.info(
+        "Completeness: %.3f",
+        metrics.completeness_score(labels, labels),
+    )
+    logger.info("V-measure: %.3f", metrics.v_measure_score(labels, labels))
+    logger.info(
+        "Adjusted Rand Index: %.3f",
+        metrics.adjusted_rand_score(labels, labels),
+    )
 
 
 def main() -> None:
@@ -238,29 +258,17 @@ def main() -> None:
             labels = af.labels_
             cluster_centers_indices = af.cluster_centers_indices_
 
-            # Log clustering metrics
-            n_clusters = (
-                len(cluster_centers_indices)
-                if cluster_centers_indices is not None
-                else 0
-            )
-            logger.info("Estimated number of clusters: %d", n_clusters)
-            logger.info("Homogeneity: %.3f", metrics.homogeneity_score(labels, labels))
-            logger.info(
-                "Completeness: %.3f",
-                metrics.completeness_score(labels, labels),
-            )
-            logger.info("V-measure: %.3f", metrics.v_measure_score(labels, labels))
-            logger.info(
-                "Adjusted Rand Index: %.3f",
-                metrics.adjusted_rand_score(labels, labels),
-            )
+            _log_cluster_metrics(cluster_centers_indices, labels)
 
             _update_database(collection, coords_df, labels, cluster_centers_indices)
-            if hasattr(af, "n_iter_") and not (
-                cluster_centers_indices is not None
-                and len(cluster_centers_indices) > 0
-            ) and not (hasattr(labels, "size") and np.unique(labels).size > 0):
+            if (
+                hasattr(af, "n_iter_")
+                and not (
+                    cluster_centers_indices is not None
+                    and len(cluster_centers_indices) > 0
+                )
+                and not (hasattr(labels, "size") and np.unique(labels).size > 0)
+            ):
                 logger.info("Number of iterations: %d", af.n_iter_)
 
             logger.info("Clustering completed successfully")
