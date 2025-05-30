@@ -57,7 +57,7 @@ def get_validated_path_from_env(
                 f"Path from environment variable '{var_name}' ('{path_str}') is not a"
                 f" file. It exists but is a directory or other type."
             )
-            raise FileNotFoundError(err_msg)
+            raise ValueError(err_msg)
 
     if check_is_dir:
         if not path_obj.exists():
@@ -65,8 +65,8 @@ def get_validated_path_from_env(
                 f"Expected a directory at path from '{var_name}' ('{path_str}'), but"
                 " it does not exist."
             )
-            # Consider NotADirectoryError here if strictly a dir is expected,
-            # even if non-existent. For now, FileNotFoundError for non-existence.
+
+            # Using FileNotFoundError, even if what is not found is a directory.
             raise FileNotFoundError(err_msg)
         if not path_obj.is_dir():
             err_msg = (
@@ -79,7 +79,9 @@ def get_validated_path_from_env(
 
 
 def ensure_directory_exists(
-    dir_path: Path, *, create_if_not_exists: bool = False,
+    dir_path: Path,
+    *,
+    create_if_not_exists: bool = False,
 ) -> None:
     """Ensure a directory exists at the given path.
 
@@ -101,7 +103,6 @@ def ensure_directory_exists(
         dir_path.mkdir(parents=True, exist_ok=True)
     else:
         err_msg = (
-            f"Directory '{dir_path}' does not exist and create_if_not_exists is"
-            " False."
+            f"Directory '{dir_path}' does not exist and create_if_not_exists is False."
         )
         raise FileNotFoundError(err_msg)
