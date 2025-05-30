@@ -9,9 +9,7 @@ Step 2.
 from __future__ import annotations
 
 import argparse
-import os
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -25,8 +23,11 @@ from sklearn.metrics.pairwise import pairwise_distances
 
 from db import get_mongodb_connection
 from logger import get_logger, setup_logging
+from utils.fs_utils import get_validated_path_from_env
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pymongo.collection import Collection
 
 logger = get_logger(__name__)
@@ -88,53 +89,27 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _ensure_mongo_database_env_var_present() -> str:
-    """Ensure MONGO_DATABASE environment variable is present and return it."""
-    database = os.getenv("MONGO_DATABASE")
-    if not database:
-        msg = "MONGO_DATABASE environment variable is required"
-        raise ValueError(msg)
-    return database
+# Removed _ensure_mongo_database_env_var_present (now handled by db.py)
+# Removed _ensure_temp_image_file_env_var_present (now use get_validated_path_from_env)
+# Removed _ensure_file_exists (now use get_validated_path_from_env)
 
-
-def _ensure_temp_image_file_env_var_present() -> Path:
-    """Ensure TEMP_IMAGE_FILE environment variable is present and return it."""
-    temp_image_file_path_str = os.getenv("TEMP_IMAGE_FILE")
-    if not temp_image_file_path_str:
-        msg = "TEMP_IMAGE_FILE environment variable is required"
-        raise ValueError(msg)
-    return Path(temp_image_file_path_str)
-
-
-def _ensure_file_exists(path: Path, file_description: str) -> None:
-    """Ensure path exists and is a file, raising FileNotFoundError otherwise."""
-    if not path.is_file():
-        msg = f"{file_description} ({path}) does not exist or is not a file."
-        raise FileNotFoundError(msg)
-
-
-def _load_and_validate_env_vars() -> tuple[str, Path]:
-    """Load and validate environment variables."""
+def _load_and_validate_env_vars() -> Path: # Only returns temp_image_file now
+    """Load and validate environment variables using utility functions."""
     load_dotenv()
-    # The try-except block here is to demonstrate catching errors from helpers
-    # and potentially re-raising or handling them as needed.
-    # For this specific refactoring, direct calls without try-except in this function
-    # would also work if the main function's try-except is deemed sufficient.
     try:
-        database = _ensure_mongo_database_env_var_present()
-        temp_image_file = _ensure_temp_image_file_env_var_present()
+        # MONGO_DATABASE validation is handled by db.py via get_mongodb_connection().
+        # No need to validate it here if not used for other purposes.
+        temp_image_file = get_validated_path_from_env(
+            var_name="TEMP_IMAGE_FILE",
+            purpose="temporary image file for clustering",
+            check_exists=True,
+            check_is_file=True,
+        )
+    except (ValueError, FileNotFoundError): # Catching errors from the utility
+        logger.exception("Environment variable validation failed")
+        raise # Re-raise to be caught by main's try-except
 
-        # Explicitly check if temp_image_file is a file, after ensuring var is present.
-        _ensure_file_exists(temp_image_file, "TEMP_IMAGE_FILE")
-
-    except ValueError: # Catching specific errors from helpers
-        logger.exception("Configuration error")
-        raise # Re-raise to be caught by the main try-except block
-    except FileNotFoundError:
-        logger.exception("File system error")
-        raise # Re-raise to be caught by the main try-except block
-
-    return database, temp_image_file
+    return temp_image_file # Return only temp_image_file
 
 
 def _load_data(temp_image_file: Path) -> tuple[pd.DataFrame, np.ndarray]:
@@ -252,7 +227,8 @@ def main() -> None:
     try:
         setup_logging(__file__, log_directory="logs")
         args = _parse_args()
-        _, temp_image_file = _load_and_validate_env_vars()
+        # temp_image_file is now the only return value from _load_and_validate_env_vars
+        temp_image_file = _load_and_validate_env_vars()
 
         client, collection = get_mongodb_connection()
         try:

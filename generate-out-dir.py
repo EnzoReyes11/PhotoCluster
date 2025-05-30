@@ -16,6 +16,8 @@ from dotenv import load_dotenv
 
 from db import get_mongodb_connection
 from logger import get_logger, setup_logging
+from utils.env_utils import get_required_env_var
+from utils.fs_utils import ensure_directory_exists
 
 if TYPE_CHECKING:
     from pymongo.collection import Collection
@@ -78,23 +80,8 @@ def get_next_directory_number(base_dir: Path, algorithm: str, separator: str) ->
     return max(numbers, default=0) + 1
 
 
-def _get_validated_output_dir_path_env() -> Path:
-    """Get and validate the OUTPUT_DIR_PATH environment variable."""
-    output_dir_path_str = os.getenv("OUTPUT_DIR_PATH")
-    if not output_dir_path_str:
-        msg = "OUTPUT_DIR_PATH environment variable is required"
-        raise ValueError(msg)
-    return Path(output_dir_path_str)
-
-
-def _get_validated_clustering_algorithm_env() -> str:
-    """Get and validate the CLUSTERING_ALGORITHM environment variable."""
-    algorithm = os.getenv("CLUSTERING_ALGORITHM")
-    if not algorithm:
-        msg = "CLUSTERING_ALGORITHM environment variable is required"
-        raise ValueError(msg)
-    return algorithm
-
+# Old output_dir_path_env helper removed (now uses utils)
+# Old clustering_algorithm_env helper removed (now uses utils)
 
 def create_cluster_directories(
     collection: "Collection",
@@ -194,39 +181,45 @@ def main() -> None:
         # Load environment variables
         load_dotenv()
 
-        # Get base output directory and clustering algorithm
+        # Get and validate environment variables
         try:
-            base_output_dir = _get_validated_output_dir_path_env()
-            algorithm = _get_validated_clustering_algorithm_env()
-        except ValueError:
-            logger.exception("Configuration error")
+            output_dir_path_str = get_required_env_var(
+                var_name="OUTPUT_DIR_PATH", purpose="base output directory path",
+            )
+            base_output_dir = Path(output_dir_path_str)
+            # Ensure the base output directory exists, create if not
+            ensure_directory_exists(base_output_dir, create_if_not_exists=True)
+            logger.info("Ensured base output directory exists: %s", base_output_dir)
+
+            algorithm = get_required_env_var(
+                var_name="CLUSTERING_ALGORITHM",
+                purpose="clustering algorithm selection",
+            )
+        except (ValueError, FileNotFoundError, NotADirectoryError):
+            logger.exception("Environment variable or path validation failed")
             raise # Re-raise to be caught by the main try-except block
 
-        # Create base directory if it doesn't exist
-        if not base_output_dir.exists():
-            logger.info("Creating base output directory: %s", base_output_dir)
-            base_output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Get next directory number and create output directory
+        # Determine and create the specific numbered output directory for this run
         separator = "-"
         dir_number = get_next_directory_number(base_output_dir, algorithm, separator)
-        output_dir = base_output_dir / f"{algorithm}{separator}{dir_number}"
+        output_dir_for_run = base_output_dir / f"{algorithm}{separator}{dir_number}"
 
-        logger.info("Creating output directory: %s", output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        # Ensure this specific run's output directory exists
+        ensure_directory_exists(output_dir_for_run, create_if_not_exists=True)
+        logger.info("Created run-specific output directory: %s", output_dir_for_run)
 
         # Connect to MongoDB
         client, collection = get_mongodb_connection()
 
         try:
-            logger.info("Starting cluster organization in %s", output_dir)
-            create_cluster_directories(collection, output_dir)
+            logger.info("Starting cluster organization in %s", output_dir_for_run)
+            create_cluster_directories(collection, output_dir_for_run)
             logger.info("Finished cluster organization")
         finally:
             client.close()
 
-    except Exception:
-        logger.exception("Error during processing")
+    except Exception: # General exception handler
+        logger.exception("Output directory generation process failed")
         sys.exit(1)
 
 

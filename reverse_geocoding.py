@@ -4,7 +4,6 @@ Runs reverse Geocoding for each cluster, and updates the MongoDB collection with
 this information.
 """
 
-import os
 import sys
 
 import googlemaps
@@ -12,29 +11,23 @@ from dotenv import load_dotenv
 
 from db import get_mongodb_connection
 from logger import get_logger, setup_logging
+from utils.env_utils import get_required_env_var
 
 logger = get_logger(__name__)
 
 
-def _get_validated_google_maps_api_key_env() -> str:
-    """Get and validate the GOOGLE_MAPS_API_KEY environment variable."""
-    api_key = os.getenv("GOOGLE_MAPS_API_KEY")
-    if not api_key or api_key == "your_api_key":
-        msg = "Valid GOOGLE_MAPS_API_KEY environment variable is required"
-        raise ValueError(
-            msg,
+# Old google_maps_api_key_env helper removed (uses utils)
+# Old mongo_database_env helper removed (uses db.py)
+
+def _raise_if_api_key_is_placeholder(api_key: str) -> None:
+    """Raise ValueError if the provided API key is the placeholder value."""
+    if api_key == "your_api_key":
+        # This message is intentionally a bit long for the E501 fix demonstration
+        err_msg = (
+            "Placeholder GOOGLE_MAPS_API_KEY ('your_api_key') must be replaced"
+            " with a valid key."
         )
-    return api_key
-
-
-def _get_validated_mongo_database_env() -> str:
-    """Get and validate the MONGO_DATABASE environment variable."""
-    database = os.getenv("MONGO_DATABASE")
-    if not database:
-        msg = "MONGO_DATABASE environment variable is required"
-        raise ValueError(msg)
-    return database
-
+        raise ValueError(err_msg)
 
 def main() -> None:
     """Run reverse geocoding for cluster centers and update MongoDB records."""
@@ -47,10 +40,13 @@ def main() -> None:
 
         # Validate environment variables
         try:
-            api_key = _get_validated_google_maps_api_key_env()
-            _get_validated_mongo_database_env()
-        except ValueError:
-            logger.exception("Configuration error")
+            # MONGO_DATABASE validation is handled by db.py via get_mongodb_connection()
+            api_key = get_required_env_var(
+                var_name="GOOGLE_MAPS_API_KEY", purpose="Google Maps API access",
+            )
+            _raise_if_api_key_is_placeholder(api_key)
+        except ValueError: # Catches from get_required_env_var or placeholder check
+            logger.exception("Environment variable validation failed")
             raise # Re-raise to be caught by the main try-except block
 
         # Connect to MongoDB
@@ -122,8 +118,8 @@ def main() -> None:
         finally:
             client.close()
 
-    except Exception:
-        logger.exception("Error during processing")
+    except Exception: # General exception handler
+        logger.exception("Reverse geocoding process failed")
         sys.exit(1)
 
 

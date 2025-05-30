@@ -16,6 +16,10 @@ from exiftool import ExifToolHelper
 
 from db import get_mongodb_connection
 from logger import get_logger, setup_logging
+from utils.fs_utils import get_validated_path_from_env
+
+# get_required_env_var is not directly used here, but fs_utils uses it.
+# No need to import it directly unless other non-path env vars were being handled.
 
 logger = get_logger(__name__)
 
@@ -98,36 +102,8 @@ def normalize_exiftool_data(metadata: dict[str, any]) -> dict[str, any]:
     return normalized
 
 
-def _get_validated_mongo_database_env() -> str:
-    """Get and validate the MONGO_DATABASE environment variable."""
-    database = os.getenv("MONGO_DATABASE")
-    if not database:
-        msg = "MONGO_DATABASE environment variable is required"
-        raise ValueError(msg)
-    return database
-
-
-def _get_validated_source_dir_env() -> Path:
-    """Get and validate the SOURCE_IMAGES_DIR_PATH environment variable."""
-    source_dir_str = os.getenv("SOURCE_IMAGES_DIR_PATH")
-    if not source_dir_str:
-        msg = "SOURCE_IMAGES_DIR_PATH environment variable is required"
-        raise ValueError(msg)
-
-    source_dir = Path(source_dir_str)
-    if not source_dir.is_dir():
-        # This check is more about file system state than missing env var.
-        # Raising FileNotFoundError might be more appropriate.
-        # Sticking to ValueError for env var issues.
-        msg = (
-            f"SOURCE_IMAGES_DIR_PATH ('{source_dir}') does not exist or is not a"
-            " directory."
-        ) # Shortened line
-        raise ValueError(
-            msg,
-        )
-    return source_dir
-
+# Removed _get_validated_mongo_database_env (handled by db.py)
+# Removed _get_validated_source_dir_env (replaced by get_validated_path_from_env)
 
 def main() -> None:
     """Extract EXIF data from supported media and store metadata in MongoDB."""
@@ -138,17 +114,19 @@ def main() -> None:
         # Load environment variables
         load_dotenv()
 
-        # Validate environment variables by calling new helper functions
-        # The try-except block here demonstrates catching errors from helpers.
-        # The main function already has a general try-except, so this
-        # specific block could be removed if only top-level handling is desired.
+        # Validate environment variables
         try:
-            _get_validated_mongo_database_env()
-            source_dir = _get_validated_source_dir_env()
-        except ValueError:
-            logger.exception("Configuration error")
-            # Re-raise to be caught by the main try-except block,
-            # or handle more specifically if needed.
+            # MONGO_DATABASE validation is handled by db.py via get_mongodb_connection()
+            source_dir = get_validated_path_from_env(
+                var_name="SOURCE_IMAGES_DIR_PATH",
+                purpose="source directory for images",
+                check_exists=True,
+                check_is_dir=True,
+            )
+        except (ValueError, FileNotFoundError, NotADirectoryError):
+            # Catching specific errors from the utility
+            logger.exception("Environment variable or path validation failed")
+            # Re-raise to be caught by the main try-except block
             raise
 
         unsupported_files_log = Path(
@@ -201,8 +179,8 @@ def main() -> None:
         finally:
             client.close()
 
-    except Exception:
-        logger.exception("Error during processing")
+    except Exception: # General exception handler
+        logger.exception("EXIF extraction process failed")
         sys.exit(1)
 
 
