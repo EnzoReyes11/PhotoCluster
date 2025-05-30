@@ -11,15 +11,19 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+from pymongo.cursor import Cursor
 
-from db import get_mongodb_connection
 from logger import get_logger, setup_logging
 from utils.fs_utils import get_validated_path_from_env
+
+load_dotenv()
+
+from db import get_mongodb_connection  # noqa: E402
 
 logger = get_logger(__name__)
 
 
-def _write_output_file(file, docs, docs_count):
+def _write_output_file(file: Path, docs: Cursor, docs_count: int) -> None:
     with Path.open(file, "w", newline="") as f:
         csv_writer = csv.writer(f)
         csv_writer.writerow(
@@ -46,8 +50,6 @@ def main() -> None:
     """Generate CSV with media elements that have GPS data."""
     try:
         setup_logging(__file__, log_directory="logs")
-
-        load_dotenv()
 
         try:
             temp_image_file = get_validated_path_from_env(

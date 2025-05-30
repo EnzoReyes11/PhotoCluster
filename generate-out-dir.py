@@ -14,10 +14,13 @@ from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
 
-from db import get_mongodb_connection
 from logger import get_logger, setup_logging
 from utils.env_utils import get_required_env_var
 from utils.fs_utils import ensure_directory_exists
+
+load_dotenv()
+
+from db import get_mongodb_connection  # noqa: E402
 
 if TYPE_CHECKING:
     from pymongo.collection import Collection
@@ -171,8 +174,6 @@ def main() -> None:
     """Organize media files into cluster directories."""
     try:
         setup_logging(__file__, log_directory="logs")
-
-        load_dotenv()
 
         try:
             output_dir_path_str = get_required_env_var(

@@ -22,9 +22,12 @@ from sklearn import metrics
 from sklearn.cluster import AffinityPropagation
 from sklearn.metrics.pairwise import pairwise_distances
 
-from db import get_mongodb_connection
 from logger import get_logger, setup_logging
 from utils.fs_utils import get_validated_path_from_env
+
+load_dotenv()
+
+from db import get_mongodb_connection  # noqa: E402
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -97,7 +100,6 @@ def _parse_args() -> argparse.Namespace:
 
 def _load_and_validate_env_vars() -> Path:  # Only returns temp_image_file now
     """Load and validate environment variables using utility functions."""
-    load_dotenv()
     try:
         # MONGO_DATABASE validation is handled by db.py via get_mongodb_connection().
         # No need to validate it here if not used for other purposes.
@@ -224,7 +226,10 @@ def _update_database(
         # Consider passing 'af' to this function if n_iter_ is important.
 
 
-def _log_cluster_metrics(cluster_centers_indices, labels):
+def _log_cluster_metrics(
+    cluster_centers_indices: np.ndarray | None,
+    labels: np.ndarray,
+) -> None:
     # Log clustering metrics
     n_clusters = (
         len(cluster_centers_indices) if cluster_centers_indices is not None else 0

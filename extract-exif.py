@@ -14,23 +14,21 @@ from pathlib import Path
 from dotenv import load_dotenv
 from exiftool import ExifToolHelper
 
-from db import get_mongodb_connection
 from logger import get_logger, setup_logging
 from utils.fs_utils import get_validated_path_from_env
+
+load_dotenv()
+
+
+from db import get_mongodb_connection  # noqa: E402
 
 logger = get_logger(__name__)
 
 
-# Add debug logging for environment variables
-def debug_env_vars() -> None:
-    """Log environment variables for debugging."""
-    logger.debug("Current working directory: %s", os.getcwd())
-    logger.debug("MONGO_HOST: %s", os.getenv("MONGO_HOST"))
-    logger.debug("MONGO_PORT: %s", os.getenv("MONGO_PORT"))
-    logger.debug("MONGO_DATABASE: %s", os.getenv("MONGO_DATABASE"))
-
-
-def _log_unsupported_extensions(unsupported_extensions, unsupported_files_log):
+def _log_unsupported_extensions(
+    unsupported_extensions: set[str],
+    unsupported_files_log: Path,
+) -> None:
     if unsupported_extensions:
         timestamp = datetime.now(timezone.utc).isoformat()
         with Path.open(unsupported_files_log, "a") as log_file:
@@ -115,9 +113,6 @@ def main() -> None:
     """Extract EXIF data from supported media and store metadata in MongoDB."""
     try:
         setup_logging(__file__, log_directory="logs")
-
-        load_dotenv()
-        debug_env_vars()  # Add debug logging
 
         try:
             source_dir = get_validated_path_from_env(

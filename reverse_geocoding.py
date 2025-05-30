@@ -9,9 +9,12 @@ import sys
 import googlemaps
 from dotenv import load_dotenv
 
-from db import get_mongodb_connection
 from logger import get_logger, setup_logging
 from utils.env_utils import get_required_env_var
+
+load_dotenv()
+
+from db import get_mongodb_connection  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -31,8 +34,6 @@ def main() -> None:
     """Run reverse geocoding for cluster centers and update MongoDB records."""
     try:
         setup_logging(__file__, log_directory="logs")
-
-        load_dotenv()
 
         try:
             api_key = get_required_env_var(
