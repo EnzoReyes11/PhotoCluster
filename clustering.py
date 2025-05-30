@@ -140,6 +140,34 @@ def _perform_clustering(
         random_state=42,
     )
     af.fit(similarity_matrix)
+
+    # Log number of iterations if available
+    if hasattr(af, "n_iter_"):
+        logger.info("Number of iterations: %d", af.n_iter_)
+
+    # Validate clustering results
+    if hasattr(af.labels_, "size") and np.unique(af.labels_).size > 0:
+        unique_labels = np.unique(af.labels_)
+        n_clusters_from_labels = len(unique_labels)
+
+        if af.cluster_centers_indices_ is None or len(af.cluster_centers_indices_) == 0:
+            logger.warning(
+                "Affinity Propagation converged, but cluster centers might be ambiguous.",
+            )
+            logger.info(
+                "Estimated number of clusters based on labels: %d",
+                n_clusters_from_labels,
+            )
+            for cluster_id in unique_labels:
+                cluster_members_indices = np.where(af.labels_ == cluster_id)[0]
+                logger.info(
+                    "Cluster %d: %d members",
+                    cluster_id,
+                    len(cluster_members_indices),
+                )
+    else:
+        logger.warning("Affinity Propagation did not converge or found no clusters.")
+
     return af
 
 
@@ -149,13 +177,21 @@ def _update_database(
     labels: np.ndarray,
     cluster_centers_indices: np.ndarray | None,
 ) -> None:
-    """Update MongoDB with clustering results."""
+    """Update MongoDB with clustering results.
+
+    Args:
+        collection: MongoDB collection to update
+        coords_df: DataFrame containing coordinates and source files
+        labels: Array of cluster labels
+        cluster_centers_indices: Array of indices for cluster centers
+
+    """
     n_clusters = (
         len(cluster_centers_indices) if cluster_centers_indices is not None else 0
     )
     coords_df["cluster_id"] = labels
 
-    if cluster_centers_indices is not None and len(cluster_centers_indices) > 0:
+    if n_clusters > 0:
         for cluster_id in range(n_clusters):
             center_index = cluster_centers_indices[cluster_id]
             center_point_details = coords_df.iloc[center_index]
@@ -201,36 +237,14 @@ def _update_database(
                 cluster_id,
                 center_point_details["SourceFile"],
             )
-    elif hasattr(labels, "size") and np.unique(labels).size > 0:
-        # Check if labels exist and are not empty
-        unique_labels = np.unique(labels)
-        n_clusters_from_labels = len(unique_labels)  # Use a different variable name
-        logger.warning(
-            "Affinity Propagation converged, but cluster centers might be ambiguous.",
-        )
-        logger.info(
-            "Estimated number of clusters based on labels: %d",
-            n_clusters_from_labels,  # Use the new variable name
-        )
-        for cluster_id in unique_labels:
-            cluster_members_indices = np.where(labels == cluster_id)[0]
-            coords_df.iloc[cluster_members_indices]
-            logger.info(
-                "Cluster %d: %d members",
-                cluster_id,
-                len(cluster_members_indices),
-            )
     else:
-        logger.warning("Affinity Propagation did not converge or found no clusters.")
-        # If af object is available here, we could log af.n_iter_
-        # Consider passing 'af' to this function if n_iter_ is important.
+        logger.info("Nothing to update in the DB.")
 
 
 def _log_cluster_metrics(
     cluster_centers_indices: np.ndarray | None,
     labels: np.ndarray,
 ) -> None:
-    # Log clustering metrics
     n_clusters = (
         len(cluster_centers_indices) if cluster_centers_indices is not None else 0
     )
@@ -252,7 +266,6 @@ def main() -> None:
     try:
         setup_logging(__file__, log_directory="logs")
         args = _parse_args()
-        # temp_image_file is now the only return value from _load_and_validate_env_vars
         temp_image_file = _load_and_validate_env_vars()
 
         client, collection = get_mongodb_connection()
@@ -260,21 +273,14 @@ def main() -> None:
             coords_df, coords = _load_data(temp_image_file)
             af = _perform_clustering(coords, args.method)
 
-            labels = af.labels_
-            cluster_centers_indices = af.cluster_centers_indices_
+            _log_cluster_metrics(af.cluster_centers_indices_, af.labels_)
 
-            _log_cluster_metrics(cluster_centers_indices, labels)
-
-            _update_database(collection, coords_df, labels, cluster_centers_indices)
-            if (
-                hasattr(af, "n_iter_")
-                and not (
-                    cluster_centers_indices is not None
-                    and len(cluster_centers_indices) > 0
-                )
-                and not (hasattr(labels, "size") and np.unique(labels).size > 0)
-            ):
-                logger.info("Number of iterations: %d", af.n_iter_)
+            _update_database(
+                collection,
+                coords_df,
+                af.labels_,
+                af.cluster_centers_indices_,
+            )
 
             logger.info("Clustering completed successfully")
         finally:
