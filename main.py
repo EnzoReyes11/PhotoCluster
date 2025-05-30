@@ -52,19 +52,16 @@ def main() -> None:
         setup_logging(__file__, log_directory="logs")
 
         try:
+            # If it doesn't exists, it will be created on writing.
             temp_image_file = get_validated_path_from_env(
                 var_name="TEMP_IMAGE_FILE",
                 purpose="temporary image file for CSV output",
-                check_exists=False,  # File might be created by this script
+                check_exists=False,
                 check_is_file=False,
             )
         except (ValueError, FileNotFoundError, NotADirectoryError):
             logger.exception("Environment variable or path validation failed")
             raise
-
-        # Note: The original code for temp_image_file did not check .is_file() here.
-        # If that check is needed, it should be added separately and
-        # might raise FileNotFoundError. # Shortened comment
 
         client, collection = get_mongodb_connection()
 

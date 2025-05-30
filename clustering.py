@@ -152,7 +152,8 @@ def _perform_clustering(
 
         if af.cluster_centers_indices_ is None or len(af.cluster_centers_indices_) == 0:
             logger.warning(
-                "Affinity Propagation converged, but cluster centers might be ambiguous.",
+                "Affinity Propagation converged, but cluster centers might be "
+                "ambiguous.",
             )
             logger.info(
                 "Estimated number of clusters based on labels: %d",
