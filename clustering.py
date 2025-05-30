@@ -7,10 +7,11 @@ information.
 Step 2.
 """
 
+from __future__ import annotations
+
 import argparse
-import os
 import sys
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
@@ -21,8 +22,17 @@ from sklearn import metrics
 from sklearn.cluster import AffinityPropagation
 from sklearn.metrics.pairwise import pairwise_distances
 
-from db import get_mongodb_connection
 from logger import get_logger, setup_logging
+from utils.fs_utils import get_validated_path_from_env
+
+load_dotenv()
+
+from db import get_mongodb_connection  # noqa: E402
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from pymongo.collection import Collection
 
 logger = get_logger(__name__)
 
@@ -63,182 +73,219 @@ def calculate_distances(coords: np.ndarray, method: str = "haversine") -> np.nda
 
         distance_matrix = pairwise_distances(coords, metric=haversine_wrapper)
     else:
-        raise ValueError(f"Unknown distance calculation method: {method}")
+        msg = f"Unknown distance calculation method: {method}"
+        raise ValueError(msg)
 
     return distance_matrix
+
+
+def _parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Photo clustering with different distance calculation methods",
+    )
+    parser.add_argument(
+        "--method",
+        choices=["geodesic", "haversine"],
+        default="haversine",
+        help="Distance calculation method to use",
+    )
+    return parser.parse_args()
+
+
+# Removed _ensure_mongo_database_env_var_present (now handled by db.py)
+# Removed _ensure_temp_image_file_env_var_present (now use get_validated_path_from_env)
+# Removed _ensure_file_exists (now use get_validated_path_from_env)
+
+
+def _load_and_validate_env_vars() -> Path:  # Only returns temp_image_file now
+    """Load and validate environment variables using utility functions."""
+    try:
+        # MONGO_DATABASE validation is handled by db.py via get_mongodb_connection().
+        # No need to validate it here if not used for other purposes.
+        temp_image_file = get_validated_path_from_env(
+            var_name="TEMP_IMAGE_FILE",
+            purpose="temporary image file for clustering",
+            check_exists=True,
+            check_is_file=True,
+        )
+    except (ValueError, FileNotFoundError):  # Catching errors from the utility
+        logger.exception("Environment variable validation failed")
+        raise  # Re-raise to be caught by main's try-except
+
+    return temp_image_file  # Return only temp_image_file
+
+
+def _load_data(temp_image_file: Path) -> tuple[pd.DataFrame, np.ndarray]:
+    """Load data from CSV file."""
+    coords_df = pd.read_csv(temp_image_file)
+    coords = coords_df[coords_df.columns[1:3]].to_numpy()
+    logger.info("Loaded %d coordinates from CSV", len(coords))
+    return coords_df, coords
+
+
+def _perform_clustering(
+    coords: np.ndarray,
+    method: str,
+) -> AffinityPropagation:
+    """Perform affinity propagation clustering."""
+    logger.info("Using %s distance calculation method", method)
+    distance_matrix = calculate_distances(coords, method=method)
+    similarity_matrix = -distance_matrix
+
+    af = AffinityPropagation(
+        affinity="precomputed",
+        damping=0.9,
+        max_iter=500,
+        random_state=42,
+    )
+    af.fit(similarity_matrix)
+
+    # Log number of iterations if available
+    if hasattr(af, "n_iter_"):
+        logger.info("Number of iterations: %d", af.n_iter_)
+
+    # Validate clustering results
+    if hasattr(af.labels_, "size") and np.unique(af.labels_).size > 0:
+        unique_labels = np.unique(af.labels_)
+        n_clusters_from_labels = len(unique_labels)
+
+        if af.cluster_centers_indices_ is None or len(af.cluster_centers_indices_) == 0:
+            logger.warning(
+                "Affinity Propagation converged, but cluster centers might be "
+                "ambiguous.",
+            )
+            logger.info(
+                "Estimated number of clusters based on labels: %d",
+                n_clusters_from_labels,
+            )
+            for cluster_id in unique_labels:
+                cluster_members_indices = np.where(af.labels_ == cluster_id)[0]
+                logger.info(
+                    "Cluster %d: %d members",
+                    cluster_id,
+                    len(cluster_members_indices),
+                )
+    else:
+        logger.warning("Affinity Propagation did not converge or found no clusters.")
+
+    return af
+
+
+def _update_database(
+    collection: Collection,
+    coords_df: pd.DataFrame,
+    labels: np.ndarray,
+    cluster_centers_indices: np.ndarray | None,
+) -> None:
+    """Update MongoDB with clustering results.
+
+    Args:
+        collection: MongoDB collection to update
+        coords_df: DataFrame containing coordinates and source files
+        labels: Array of cluster labels
+        cluster_centers_indices: Array of indices for cluster centers
+
+    """
+    n_clusters = (
+        len(cluster_centers_indices) if cluster_centers_indices is not None else 0
+    )
+    coords_df["cluster_id"] = labels
+
+    if n_clusters > 0:
+        for cluster_id in range(n_clusters):
+            center_index = cluster_centers_indices[cluster_id]
+            center_point_details = coords_df.iloc[center_index]
+
+            cluster_members_indices = np.where(labels == cluster_id)[0]
+            member_source_files = [
+                coords_df.iloc[idx]["SourceFile"] for idx in cluster_members_indices
+            ]
+
+            if member_source_files:
+                update_result = collection.update_many(
+                    {"SourceFile": {"$in": member_source_files}},
+                    {
+                        "$set": {
+                            "cluster": {
+                                "id": cluster_id,
+                                "isCenter": False,
+                                "locationName": None,
+                            },
+                        },
+                    },
+                )
+                logger.debug(
+                    "Updated %d non-center members for cluster %d",
+                    update_result.modified_count,
+                    cluster_id,
+                )
+
+            collection.update_one(
+                {"SourceFile": center_point_details["SourceFile"]},
+                {
+                    "$set": {
+                        "cluster": {
+                            "id": cluster_id,
+                            "isCenter": True,
+                            "locationName": None,
+                        },
+                    },
+                },
+            )
+            logger.debug(
+                "Updated center photo for cluster %d: %s",
+                cluster_id,
+                center_point_details["SourceFile"],
+            )
+    else:
+        logger.info("Nothing to update in the DB.")
+
+
+def _log_cluster_metrics(
+    cluster_centers_indices: np.ndarray | None,
+    labels: np.ndarray,
+) -> None:
+    n_clusters = (
+        len(cluster_centers_indices) if cluster_centers_indices is not None else 0
+    )
+    logger.info("Estimated number of clusters: %d", n_clusters)
+    logger.info("Homogeneity: %.3f", metrics.homogeneity_score(labels, labels))
+    logger.info(
+        "Completeness: %.3f",
+        metrics.completeness_score(labels, labels),
+    )
+    logger.info("V-measure: %.3f", metrics.v_measure_score(labels, labels))
+    logger.info(
+        "Adjusted Rand Index: %.3f",
+        metrics.adjusted_rand_score(labels, labels),
+    )
 
 
 def main() -> None:
     """Run clustering algorithm and update MongoDB records."""
     try:
-        # Setup logging
         setup_logging(__file__, log_directory="logs")
+        args = _parse_args()
+        temp_image_file = _load_and_validate_env_vars()
 
-        # Load environment variables
-        load_dotenv()
-
-        # Parse command line arguments
-        parser = argparse.ArgumentParser(
-            description="Photo clustering with different distance calculation methods",
-        )
-        parser.add_argument(
-            "--method",
-            choices=["geodesic", "haversine"],
-            default="haversine",
-            help="Distance calculation method to use",
-        )
-        args = parser.parse_args()
-
-        # Validate environment variables
-        database = os.getenv("MONGO_DATABASE")
-        temp_image_file = Path(os.getenv("TEMP_IMAGE_FILE", ""))
-
-        if not database:
-            raise ValueError("MONGO_DATABASE environment variable is required")
-        if not temp_image_file or not temp_image_file.is_file():
-            raise FileNotFoundError(
-                "Environment variable TEMP_IMAGE_FILE is not set or points to a non-existent file.",
-            )
-
-        # Connect to MongoDB
         client, collection = get_mongodb_connection()
-
         try:
-            # Read coordinates from CSV
-            df = pd.read_csv(temp_image_file)
-            coords = df[df.columns[1:3]].values
-            logger.info("Loaded %d coordinates from CSV", len(coords))
+            coords_df, coords = _load_data(temp_image_file)
+            af = _perform_clustering(coords, args.method)
 
-            # Calculate distances
-            logger.info("Using %s distance calculation method", args.method)
-            distance_matrix = calculate_distances(coords, method=args.method)
-            similarity_matrix = -distance_matrix
+            _log_cluster_metrics(af.cluster_centers_indices_, af.labels_)
 
-            # Run Affinity Propagation
-            af = AffinityPropagation(
-                affinity="precomputed",
-                damping=0.9,
-                max_iter=500,
-                random_state=42,
+            _update_database(
+                collection,
+                coords_df,
+                af.labels_,
+                af.cluster_centers_indices_,
             )
-            af.fit(similarity_matrix)
-
-            cluster_centers_indices = af.cluster_centers_indices_
-            n_clusters = (
-                len(cluster_centers_indices)
-                if cluster_centers_indices is not None
-                else 0
-            )
-            labels = af.labels_
-
-            # Log clustering metrics
-            logger.info("Estimated number of clusters: %d", n_clusters)
-            logger.info("Homogeneity: %.3f", metrics.homogeneity_score(labels, labels))
-            logger.info(
-                "Completeness: %.3f",
-                metrics.completeness_score(labels, labels),
-            )
-            logger.info("V-measure: %.3f", metrics.v_measure_score(labels, labels))
-            logger.info(
-                "Adjusted Rand Index: %.3f",
-                metrics.adjusted_rand_score(labels, labels),
-            )
-
-            # Add cluster labels to DataFrame
-            df["cluster_id"] = labels
-            centers = []
-
-            if cluster_centers_indices is not None and len(cluster_centers_indices) > 0:
-                for cluster_id in range(n_clusters):
-                    center_index = cluster_centers_indices[cluster_id]
-                    center_point_details = df.iloc[center_index]
-
-                    # Update all photos in this cluster
-                    cluster_members_indices = np.where(labels == cluster_id)[0]
-                    member_source_files = [
-                        df.iloc[idx]["SourceFile"] for idx in cluster_members_indices
-                    ]
-
-                    # Update all non-center members
-                    if member_source_files:
-                        update_result = collection.update_many(
-                            {"SourceFile": {"$in": member_source_files}},
-                            {
-                                "$set": {
-                                    "cluster": {
-                                        "id": cluster_id,
-                                        "isCenter": False,
-                                        "locationName": None,
-                                    },
-                                },
-                            },
-                        )
-                        logger.debug(
-                            "Updated %d non-center members for cluster %d",
-                            update_result.modified_count,
-                            cluster_id,
-                        )
-
-                    # Update the center photo
-                    collection.update_one(
-                        {"SourceFile": center_point_details["SourceFile"]},
-                        {
-                            "$set": {
-                                "cluster": {
-                                    "id": cluster_id,
-                                    "isCenter": True,
-                                    "locationName": None,
-                                },
-                            },
-                        },
-                    )
-                    logger.debug(
-                        "Updated center photo for cluster %d: %s",
-                        cluster_id,
-                        center_point_details["SourceFile"],
-                    )
-
-                    centers.append(
-                        {
-                            "latitude": float(center_point_details["GPSLatitude"]),
-                            "longitude": float(center_point_details["GPSLongitude"]),
-                            "cluster_id": cluster_id,
-                        },
-                    )
-
-            elif hasattr(af, "labels_") and len(np.unique(af.labels_)) > 0:
-                labels = af.labels_
-                unique_labels = np.unique(labels)
-                n_clusters = len(unique_labels)
-                logger.warning(
-                    "Affinity Propagation converged, but cluster centers might be ambiguous.",
-                )
-                logger.info(
-                    "Estimated number of clusters based on labels: %d",
-                    n_clusters,
-                )
-
-                for cluster_id in unique_labels:
-                    cluster_members_indices = np.where(labels == cluster_id)[0]
-                    cluster_members_details = df.iloc[cluster_members_indices]
-                    logger.info(
-                        "Cluster %d: %d members",
-                        cluster_id,
-                        len(cluster_members_indices),
-                    )
-
-            else:
-                logger.warning(
-                    "Affinity Propagation did not converge or found no clusters.",
-                )
-                if hasattr(af, "n_iter_"):
-                    logger.info("Number of iterations: %d", af.n_iter_)
 
             logger.info("Clustering completed successfully")
-
         finally:
             client.close()
-
     except Exception:
         logger.exception("Error during processing")
         sys.exit(1)

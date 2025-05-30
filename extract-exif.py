@@ -14,10 +14,27 @@ from pathlib import Path
 from dotenv import load_dotenv
 from exiftool import ExifToolHelper
 
-from db import get_mongodb_connection
 from logger import get_logger, setup_logging
+from utils.fs_utils import get_validated_path_from_env
+
+load_dotenv()
+
+
+from db import get_mongodb_connection  # noqa: E402
 
 logger = get_logger(__name__)
+
+
+def _log_unsupported_extensions(
+    unsupported_extensions: set[str],
+    unsupported_files_log: Path,
+) -> None:
+    if unsupported_extensions:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        with Path.open(unsupported_files_log, "a") as log_file:
+            log_file.write(
+                f"{timestamp}: {', '.join(sorted(unsupported_extensions))}\n",
+            )
 
 
 def read_all_media_files(directory: Path, unsupported_files_log: Path) -> list[str]:
@@ -65,13 +82,7 @@ def read_all_media_files(directory: Path, unsupported_files_log: Path) -> list[s
     # Start recursive file reading
     read_all_files_rec(directory)
 
-    # Log unsupported extensions
-    if unsupported_extensions:
-        timestamp = datetime.now(timezone.utc).isoformat()
-        with Path.open(unsupported_files_log, "a") as log_file:
-            log_file.write(
-                f"{timestamp}: {', '.join(sorted(unsupported_extensions))}\n",
-            )
+    _log_unsupported_extensions(unsupported_extensions, unsupported_files_log)
 
     return file_paths
 
@@ -101,31 +112,26 @@ def normalize_exiftool_data(metadata: dict[str, any]) -> dict[str, any]:
 def main() -> None:
     """Extract EXIF data from supported media and store metadata in MongoDB."""
     try:
-        # Setup logging
         setup_logging(__file__, log_directory="logs")
 
-        # Load environment variables
-        load_dotenv()
+        try:
+            source_dir = get_validated_path_from_env(
+                var_name="SOURCE_IMAGES_DIR_PATH",
+                purpose="source directory for images",
+                check_exists=True,
+                check_is_dir=True,
+            )
+        except (ValueError, FileNotFoundError, NotADirectoryError):
+            logger.exception("Environment variable or path validation failed")
+            raise
 
-        # Validate environment variables
-        database = os.getenv("MONGO_DATABASE")
-        source_dir = Path(os.getenv("SOURCE_IMAGES_DIR_PATH", ""))
         unsupported_files_log = Path(
             os.getenv("UNSUPPORTED_FILES_LOG", "unsupported_files.log"),
         )
 
-        if not database:
-            raise ValueError("MONGO_DATABASE environment variable is required")
-        if not source_dir:
-            raise ValueError("SOURCE_IMAGES_DIR_PATH environment variable is required")
-        if not source_dir.is_dir():
-            raise ValueError(f"Source directory does not exist: {source_dir}")
-
-        # Connect to MongoDB
         client, collection = get_mongodb_connection()
 
         try:
-            # Get all image files
             file_paths = read_all_media_files(source_dir, unsupported_files_log)
             logger.info("Found %d image files to process", len(file_paths))
 
@@ -168,7 +174,7 @@ def main() -> None:
             client.close()
 
     except Exception:
-        logger.exception("Error during processing")
+        logger.exception("EXIF extraction process failed")
         sys.exit(1)
 
 

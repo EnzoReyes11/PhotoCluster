@@ -4,64 +4,69 @@ Runs reverse Geocoding for each cluster, and updates the MongoDB collection with
 this information.
 """
 
-import os
 import sys
 
 import googlemaps
 from dotenv import load_dotenv
 
-from db import get_mongodb_connection
 from logger import get_logger, setup_logging
+from utils.env_utils import get_required_env_var
+
+load_dotenv()
+
+from db import get_mongodb_connection  # noqa: E402
 
 logger = get_logger(__name__)
+
+
+def _raise_if_api_key_is_placeholder(api_key: str) -> None:
+    """Raise ValueError if the provided API key is the placeholder value."""
+    if api_key == "your_api_key":
+        # This message is intentionally a bit long for the E501 fix demonstration
+        err_msg = (
+            "Placeholder GOOGLE_MAPS_API_KEY ('your_api_key') must be replaced"
+            " with a valid key."
+        )
+        raise ValueError(err_msg)
 
 
 def main() -> None:
     """Run reverse geocoding for cluster centers and update MongoDB records."""
     try:
-        # Setup logging
         setup_logging(__file__, log_directory="logs")
 
-        # Load environment variables
-        load_dotenv()
-
-        # Validate environment variables
-        api_key = os.getenv("GOOGLE_MAPS_API_KEY", "your_api_key")
-        database = os.getenv("MONGO_DATABASE")
-
-        if not api_key or api_key == "your_api_key":
-            raise ValueError(
-                "Valid GOOGLE_MAPS_API_KEY environment variable is required",
+        try:
+            api_key = get_required_env_var(
+                var_name="GOOGLE_MAPS_API_KEY",
+                purpose="Google Maps API access",
             )
-        if not database:
-            raise ValueError("MONGO_DATABASE environment variable is required")
+            _raise_if_api_key_is_placeholder(api_key)
+        except ValueError:
+            logger.exception("Environment variable validation failed")
+            raise
 
-        # Connect to MongoDB
         client, collection = get_mongodb_connection()
 
         try:
-            # Find all center photos that need reverse geocoding
             query = {"cluster.isCenter": True}
             center_count = collection.count_documents(query)
             center_photos = collection.find(query)
 
             logger.info("Found %d center photos to process", center_count)
 
-            # Initialize Google Maps client
             try:
                 gmaps = googlemaps.Client(key=api_key)
             except Exception:
                 logger.exception("Error initializing Google Maps client")
                 return
 
-            # Process each center photo
             for photo in center_photos:
                 try:
                     lat = float(photo["GPSLatitude"])
                     lon = float(photo["GPSLongitude"])
                 except (TypeError, ValueError, KeyError):
                     logger.warning(
-                        "Skipping document %s – invalid GPS data",
+                        "Skipping document %s - invalid GPS data",
                         photo.get("_id"),
                     )
                     continue
@@ -106,7 +111,7 @@ def main() -> None:
             client.close()
 
     except Exception:
-        logger.exception("Error during processing")
+        logger.exception("Reverse geocoding process failed")
         sys.exit(1)
 
 

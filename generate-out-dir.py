@@ -14,8 +14,13 @@ from typing import TYPE_CHECKING
 
 from dotenv import load_dotenv
 
-from db import get_mongodb_connection
 from logger import get_logger, setup_logging
+from utils.env_utils import get_required_env_var
+from utils.fs_utils import ensure_directory_exists
+
+load_dotenv()
+
+from db import get_mongodb_connection  # noqa: E402
 
 if TYPE_CHECKING:
     from pymongo.collection import Collection
@@ -58,7 +63,7 @@ def get_next_directory_number(base_dir: Path, algorithm: str, separator: str) ->
     if not base_dir.exists():
         return 1
 
-    # Find all directories matching the pattern algorithm_*
+    # Find all directories matching the pattern <algorithm>{separator}*
     existing_dirs = [
         d.name
         for d in base_dir.iterdir()
@@ -68,7 +73,6 @@ def get_next_directory_number(base_dir: Path, algorithm: str, separator: str) ->
     if not existing_dirs:
         return 1
 
-    # Extract numbers from directory names using list comprehension
     numbers = [
         int(dir_name.split(separator)[-1])
         for dir_name in existing_dirs
@@ -105,7 +109,6 @@ def create_cluster_directories(
             location_name = cluster["cluster"]["locationName"]
             cluster_id = cluster["cluster"]["id"]
 
-            # Create safe directory name
             dir_name = create_safe_dirname(location_name)
             cluster_dir = output_dir / dir_name
 
@@ -170,46 +173,46 @@ def create_cluster_directories(
 def main() -> None:
     """Organize media files into cluster directories."""
     try:
-        # Setup logging
         setup_logging(__file__, log_directory="logs")
 
-        # Load environment variables
-        load_dotenv()
+        try:
+            output_dir_path_str = get_required_env_var(
+                var_name="OUTPUT_DIR_PATH",
+                purpose="base output directory path",
+            )
+            base_output_dir = Path(output_dir_path_str)
+            # Ensure the base output directory exists, create if not
+            ensure_directory_exists(base_output_dir, create_if_not_exists=True)
+            logger.info("Ensured base output directory exists: %s", base_output_dir)
 
-        # Get base output directory and clustering algorithm
-        base_output_dir = Path(os.getenv("OUTPUT_DIR_PATH", ""))
-        algorithm = os.getenv("CLUSTERING_ALGORITHM")
+            algorithm = get_required_env_var(
+                var_name="CLUSTERING_ALGORITHM",
+                purpose="clustering algorithm selection",
+            )
+        except (ValueError, FileNotFoundError, NotADirectoryError):
+            logger.exception("Environment variable or path validation failed")
+            raise  # Re-raise to be caught by the main try-except block
 
-        if not base_output_dir:
-            raise ValueError("OUTPUT_DIR_PATH environment variable is required")
-        if not algorithm:
-            raise ValueError("CLUSTERING_ALGORITHM environment variable is required")
-
-        # Create base directory if it doesn't exist
-        if not base_output_dir.exists():
-            logger.info("Creating base output directory: %s", base_output_dir)
-            base_output_dir.mkdir(parents=True, exist_ok=True)
-
-        # Get next directory number and create output directory
+        # Determine and create the specific numbered output directory for this run
         separator = "-"
         dir_number = get_next_directory_number(base_output_dir, algorithm, separator)
-        output_dir = base_output_dir / f"{algorithm}{separator}{dir_number}"
+        output_dir_for_run = base_output_dir / f"{algorithm}{separator}{dir_number}"
 
-        logger.info("Creating output directory: %s", output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        # Ensure this specific run's output directory exists
+        ensure_directory_exists(output_dir_for_run, create_if_not_exists=True)
+        logger.info("Created run-specific output directory: %s", output_dir_for_run)
 
-        # Connect to MongoDB
         client, collection = get_mongodb_connection()
 
         try:
-            logger.info("Starting cluster organization in %s", output_dir)
-            create_cluster_directories(collection, output_dir)
+            logger.info("Starting cluster organization in %s", output_dir_for_run)
+            create_cluster_directories(collection, output_dir_for_run)
             logger.info("Finished cluster organization")
         finally:
             client.close()
 
     except Exception:
-        logger.exception("Error during processing")
+        logger.exception("Output directory generation process failed")
         sys.exit(1)
 
 

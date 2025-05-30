@@ -7,37 +7,62 @@ Step 1.
 """
 
 import csv
-import os
 import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+from pymongo.cursor import Cursor
 
-from db import get_mongodb_connection
 from logger import get_logger, setup_logging
+from utils.fs_utils import get_validated_path_from_env
+
+load_dotenv()
+
+from db import get_mongodb_connection  # noqa: E402
 
 logger = get_logger(__name__)
+
+
+def _write_output_file(file: Path, docs: Cursor, docs_count: int) -> None:
+    with Path.open(file, "w", newline="") as f:
+        csv_writer = csv.writer(f)
+        csv_writer.writerow(
+            ["SourceFile", "GPSLatitude", "GPSLongitude", "GPSAltitude"],
+        )
+
+        for key in docs:
+            csv_writer.writerow(
+                [
+                    key["SourceFile"],
+                    key["GPSLatitude"],
+                    key["GPSLongitude"],
+                    key["GPSAltitude"],
+                ],
+            )
+    logger.info(
+        "Successfully wrote %d records to %s",
+        docs_count,
+        file,
+    )
 
 
 def main() -> None:
     """Generate CSV with media elements that have GPS data."""
     try:
-        # Setup logging
         setup_logging(__file__, log_directory="logs")
 
-        # Load environment variables
-        load_dotenv()
+        try:
+            # If it doesn't exists, it will be created on writing.
+            temp_image_file = get_validated_path_from_env(
+                var_name="TEMP_IMAGE_FILE",
+                purpose="temporary image file for CSV output",
+                check_exists=False,
+                check_is_file=False,
+            )
+        except (ValueError, FileNotFoundError, NotADirectoryError):
+            logger.exception("Environment variable or path validation failed")
+            raise
 
-        # Validate environment variables
-        database = os.getenv("MONGO_DATABASE")
-        temp_image_file = Path(os.getenv("TEMP_IMAGE_FILE", ""))
-
-        if not database:
-            raise ValueError("MONGO_DATABASE environment variable is required")
-        if not temp_image_file:
-            raise ValueError("TEMP_IMAGE_FILE environment variable is required")
-
-        # Connect to MongoDB
         client, collection = get_mongodb_connection()
 
         try:
@@ -56,33 +81,13 @@ def main() -> None:
             docs = collection.find(query)
             docs_count = collection.count_documents(query)
 
-            # Write to CSV
-            with Path.open(temp_image_file, "w", newline="") as f:
-                csv_writer = csv.writer(f)
-                csv_writer.writerow(
-                    ["SourceFile", "GPSLatitude", "GPSLongitude", "GPSAltitude"],
-                )
-
-                for key in docs:
-                    csv_writer.writerow(
-                        [
-                            key["SourceFile"],
-                            key["GPSLatitude"],
-                            key["GPSLongitude"],
-                            key["GPSAltitude"],
-                        ],
-                    )
-            logger.info(
-                "Successfully wrote %d records to %s",
-                docs_count,
-                temp_image_file,
-            )
+            _write_output_file(temp_image_file, docs, docs_count)
 
         finally:
             client.close()
 
     except Exception:
-        logger.exception("Error during processing")
+        logger.exception("CSV generation process failed")
         sys.exit(1)
 
 
