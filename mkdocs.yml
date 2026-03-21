@@ -1,0 +1,7 @@
+site_name: "Documentation"  # TODO: update to your project name
+
+nav:
+  - Home: index.md
+
+plugins:
+  - techdocs-core
