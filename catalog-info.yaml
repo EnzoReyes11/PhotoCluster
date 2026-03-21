@@ -1,0 +1,13 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: PhotoCluster
+  description: Photo ML Geotagging
+  annotations:
+    github.com/project-slug: EnzoReyes11/PhotoCluster
+    backstage.io/techdocs-ref: dir:.
+    scaffolder.backstage.io/template: bare-minimum@1.0.0
+spec:
+  type: service
+  lifecycle: experimental
+  owner: group:default/internal
