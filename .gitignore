@@ -1,11 +1,52 @@
-**.local
-.env
+# Dependencies
 **/node_modules/
-**/logs
-*.log
-coordinates.csv
-**.csv
-.cursorrules
-Image-ExifTool-13.30
-fileViewer
-**/__pycache__
+**/venv/
+**/__pycache__/
+*.pyc
+
+# Build output
+dist/
+build/
+out/
+
+# Environment
+.env
+*.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Agents
+.claude/
+.agents/
+.agent/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform.lock.hcl
+backend.hcl
+**/backend.hcl
+
+# Terraform plugin cache
+.terraform.d/
+
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.zip
+
+# Secrets
+*.pem
+*.key
+credentials.json
